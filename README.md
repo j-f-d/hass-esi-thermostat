@@ -1,6 +1,6 @@
-# ESI 6 Series Thermostat Home Assistant Integration
+# ESI WiFi Thermostat Home Assistant Integration
 
-This is a custom Home Assistant integration for controlling ESI 6 Series Thermostats. It allows you to manage ESI smart thermostats within Home Assistant, providing functionality for setting temperatures and configuring thermostat options.
+This is a custom Home Assistant integration for controlling ESI WiFi Thermostats. It allows you to manage ESI smart thermostats within Home Assistant, providing functionality for setting temperatures and configuring thermostat options.
 
 ## Features
 
@@ -37,6 +37,7 @@ You will see a climate entity for each connected thermostat in the Climate secti
 - Monitor the current temperature.
 
 ### Troubleshooting
+- **This integration has only been tested with 6 Series thermostats so may not work as expected for other models**
 - If the integration doesn't work after installation, check the Home Assistant logs for errors.
 - Ensure that your ESI credentials are correct.
 - If you're receiving Authentication Failed errors, double-check your email and password.
