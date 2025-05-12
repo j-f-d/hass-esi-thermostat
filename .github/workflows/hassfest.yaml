@@ -1,0 +1,11 @@
+name: Hassfest
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  hassfest:
+    name: Run Hassfest validation
+    uses: home-assistant/actions/.github/workflows/hassfest.yaml@master
