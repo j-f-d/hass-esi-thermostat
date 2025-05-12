@@ -1,12 +1,12 @@
 {
   "domain": "esi_thermostat",
   "name": "ESI Thermostat",
-  "version": "1.0.0",
+  "config_flow": true,
+  "dependencies": [],
   "documentation": "https://github.com/DeclanSC/hass-esi-thermostat/",
   "issue_tracker": "https://github.com/DeclanSC/hass-esi-thermostat/issues",
-  "dependencies": [],
+  "iot_class": "cloud_polling",
   "codeowners": ["@DeclanSC"],
   "requirements": [],
-  "iot_class": "cloud_polling",
-  "config_flow": true
+  "version": "1.0.0"
 }
