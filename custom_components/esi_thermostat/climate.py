@@ -9,6 +9,7 @@ from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
+    HVACAction,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
@@ -97,15 +98,25 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         )
 
     @property
-    def icon(self) -> str:
-        """Return dynamic icon based on heating state."""
+    def hvac_action(self) -> HVACAction | None:
+        """Return the current HVAC action (heating or idle)."""
+        if self.hvac_mode != HVACMode.HEAT:
+            return None
+            
         current_temp = self.current_temperature
         target_temp = self.target_temperature
         
-        if (current_temp is not None and 
-            target_temp is not None and 
-            current_temp < target_temp and 
-            self.hvac_mode == HVACMode.HEAT):
+        if current_temp is None or target_temp is None:
+            return None
+            
+        if current_temp < target_temp:
+            return HVACAction.HEATING
+        return HVACAction.IDLE
+
+    @property
+    def icon(self) -> str:
+        """Return dynamic icon based on heating state."""
+        if self.hvac_action == HVACAction.HEATING:
             return "mdi:fire"
         return "mdi:thermometer"
 
