@@ -8,6 +8,5 @@
   "codeowners": ["@DeclanSC"],
   "requirements": [],
   "iot_class": "cloud_polling",
-  "config_flow": true,
-  "options_flow": true
+  "config_flow": true
 }
