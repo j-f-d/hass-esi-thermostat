@@ -1,15 +1,23 @@
 """Constants for ESI Thermostat integration."""
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from typing import Final
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 
-DOMAIN = "esi_thermostat"
-PLATFORMS = ["climate"]
+# Domain
+DOMAIN: Final = "esi_thermostat"
 
-# API Endpoints (full URLs)
-LOGIN_URL = "https://esiheating.uksouth.cloudapp.azure.com/centro/login"
-DEVICE_LIST_URL = "https://esiheating.uksouth.cloudapp.azure.com/centro/getDeviceListNew"
-SET_TEMP_URL = "https://esiheating.uksouth.cloudapp.azure.com/centro/setThermostatWorkModeNew"
+# Platforms
+PLATFORMS: Final[list[Platform]] = [Platform.CLIMATE]
+
+# API Endpoints
+LOGIN_URL: Final = "https://esiheating.uksouth.cloudapp.azure.com/centro/login"
+DEVICE_LIST_URL: Final = "https://esiheating.uksouth.cloudapp.azure.com/centro/getDeviceListNew"
+SET_TEMP_URL: Final = "https://esiheating.uksouth.cloudapp.azure.com/centro/setThermostatWorkModeNew"
 
 # Configuration
-DEFAULT_SCAN_INTERVAL_MINUTES = 3  # Default: 5 minutes
-CONF_SCAN_INTERVAL = "scan_interval_minutes"  # Config entry key for scan interval
-DEFAULT_NAME = "ESI Thermostat"
+DEFAULT_SCAN_INTERVAL_MINUTES: Final = 3
+CONF_SCAN_INTERVAL: Final = "scan_interval_minutes"
+DEFAULT_NAME: Final = "ESI Thermostat"
+
+# Additional constants
+ATTR_INSIDE_TEMPERATURE: Final = "inside_temparature"  # Note: Typo matches API response
+ATTR_CURRENT_TEMPERATURE: Final = "current_temprature"  # Note: Typo matches API response

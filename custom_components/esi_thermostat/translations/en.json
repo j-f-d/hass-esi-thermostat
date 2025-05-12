@@ -1,11 +1,21 @@
 {
   "config": {
+    "abort": {
+      "already_configured": "Device is already configured"
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to ESI Thermostat service",
+      "incorrect_email_or_password": "Incorrect email or password",
+      "unknown": "Unknown error occurred"
+    },
     "step": {
       "user": {
+        "title": "ESI Thermostat Setup",
+        "description": "Enter your ESI Thermostat credentials",
         "data": {
           "email": "Email",
           "password": "Password",
-          "scan_interval_minutes": "Scan Interval (minutes)"
+          "scan_interval_minutes": "Refresh Interval (minutes)"
         }
       }
     }
@@ -13,8 +23,10 @@
   "options": {
     "step": {
       "init": {
+        "title": "Configure ESI Thermostat",
+        "description": "Adjust your thermostat settings",
         "data": {
-          "scan_interval_minutes": "Scan Interval (minutes)"
+          "scan_interval_minutes": "Refresh Interval (minutes)"
         }
       }
     }

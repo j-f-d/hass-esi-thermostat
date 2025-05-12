@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
     DOMAIN,
@@ -17,13 +18,13 @@ from .coordinator import ESIDataUpdateCoordinator
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the ESI Thermostat integration from YAML (not used here)."""
-    return True  # We only use config entries
+    return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ESI Thermostat from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Get scan interval from options (fall back to default if not set)
+    # Get scan interval from options
     scan_interval_minutes = entry.options.get(
         CONF_SCAN_INTERVAL,
         DEFAULT_SCAN_INTERVAL_MINUTES
@@ -37,16 +38,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         scan_interval_minutes
     )
 
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        # Fetch initial data
+        await coordinator.async_config_entry_first_refresh()
+    except Exception as err:
+        raise ConfigEntryNotReady(f"Failed to initialize: {err}") from err
 
-    # Store coordinator in hass.data
+    # Store coordinator
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
         "data": entry.data
     }
 
-    # Forward setup to the climate platform
+    # Forward setup to platforms using async forward
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Set up options update listener
@@ -56,18 +60,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     return True
 
-async def async_update_options(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> None:
+async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
-    # Reload the entry if options change
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload an ESI Thermostat config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    if unload_ok:
+    """Unload a config entry."""
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
-
     return unload_ok
