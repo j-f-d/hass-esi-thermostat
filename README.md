@@ -1,47 +1,53 @@
 # ESI WiFi Thermostat Home Assistant Integration
 
-This is a custom Home Assistant integration for controlling ESI WiFi Thermostats. It allows you to manage ESI smart thermostats within Home Assistant, providing functionality for setting temperatures and configuring thermostat options.
+This is a custom integration for Home Assistant that adds support for controlling ESI WiFi Thermostats. It enables temperature management and thermostat configuration directly within Home Assistant.
 
 ## Features
 
-- Fetch data from the ESI Thermostat API
-- Control target temperature for thermostats
-- Configure update frequency for thermostat data
-- Easy to install and configure
+- Retrieve data from the ESI Thermostat API
+- Set target temperatures for thermostats
+- Configure update intervals for thermostat data
+- Simple installation and configuration
 
 ## Installation
 
-### 1. Clone or download the repository:
+### 1. Download the repository
+
+Clone the repository or download it as a ZIP file:
 
 ```bash
 git clone https://github.com/DeclanSC/hass-esi-thermostat.git
 ```
 
-### 2. Install the integration:
-- Copy the esi_thermostat folder from this repository to your Home Assistant's custom components directory:
-config/custom_components/esi_thermostat/
-- Restart Home Assistant to load the new integration.
+### 2. Install the integration
 
-### 3. Configure the integration:
-- Navigate to Configuration > Integrations in Home Assistant.
-- Search for "ESI Thermostat."
-- Enter your ESI account email and password.
-- Optionally, configure the Scan Interval to determine how frequently the thermostat data is updated.
+Copy the esi_thermostat folder to your Home Assistant custom_components directory:
+
+> config/custom_components/esi_thermostat/
+
+Restart Home Assistant to load the integration.
+
+### 3. Configure the integration
+
+1. In Home Assistant, navigate to **Settings** > **Devices and services** > **Add Integration**
+2. Search for **ESI Thermostat**
+3. Enter your ESI account email and password
+4. Optionally, set the refresh interval to control how frequently the thermostat data is updated
 
 ## Usage
-Once the integration is configured, you can control the thermostat’s target temperature from the Home Assistant interface.
 
-### Climate Entity
-You will see a climate entity for each connected thermostat in the Climate section of Home Assistant. This entity allows you to:
-- Set the target temperature.
-- Monitor the current temperature.
+Once configured, a climate entity will be created for each connected thermostat. These entities allow you to:
 
-### Troubleshooting
-- **This integration has only been tested with 6 Series thermostats so may not work as expected for other models**
-- If the integration doesn't work after installation, check the Home Assistant logs for errors.
-- Ensure that your ESI credentials are correct.
-- If you're receiving Authentication Failed errors, double-check your email and password.
+- Set the target temperature
+- Monitor the current temperature
+
+## Notes and Troubleshooting
+
+- This integration has been tested with **ESI 6 Series** thermostats. Other models may not be supported.
+- If the integration does not function as expected, check the Home Assistant logs for errors.
+- Verify that your ESI credentials are correct.
+- If you encounter authentication errors, ensure that your email and password are entered correctly.
 
 ## Contributing
-Feel free to fork this repository and submit issues or pull requests. Contributions are always welcome!
 
+Contributions are welcome. Feel free to fork the repository and submit issues or pull requests.
