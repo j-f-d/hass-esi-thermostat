@@ -13,7 +13,7 @@ This is a custom integration for Home Assistant that adds support for controllin
 
 Just click here to directly go to the repository in HACS and click "Download":
 
-[![hacs-default](https://img.shields.io/badge/HACS-Default-blue.svg?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DeclanSC&repository=esi-thermostat&category=integration)
+[![hacs-default](https://img.shields.io/badge/HACS-Default-blue.svg?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DeclanSC&repository=hass-esi-thermostat&category=integrations)
 
 Or:
 
