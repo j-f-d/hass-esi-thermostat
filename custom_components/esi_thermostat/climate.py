@@ -42,7 +42,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up ESI Thermostat climate platform from config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    
+
     # Wait for initial data if needed
     if not coordinator.data:
         await coordinator.async_config_entry_first_refresh()
@@ -50,7 +50,7 @@ async def async_setup_entry(
     # Create entities for each device
     devices = coordinator.data.get("devices", [])
     entities = []
-    
+
     for device in devices:
         try:
             entity = EsiThermostat(
@@ -62,7 +62,7 @@ async def async_setup_entry(
         except KeyError as err:
             _LOGGER.warning("Skipping device due to missing data: %s", err)
             continue
-    
+
     if entities:
         async_add_entities(entities)
 
@@ -102,13 +102,13 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         """Return the current HVAC action (heating or idle)."""
         if self.hvac_mode != HVACMode.HEAT:
             return None
-            
+
         current_temp = self.current_temperature
         target_temp = self.target_temperature
-        
+
         if current_temp is None or target_temp is None:
             return None
-            
+
         if current_temp < target_temp:
             return HVACAction.HEATING
         return HVACAction.IDLE
@@ -160,17 +160,23 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         self.async_write_ha_state()
 
         try:
+            # Get the current work_mode from the device
+            device = self._get_device()
+            if not device or "work_mode" not in device:
+                raise ValueError("Device work_mode not available")
+            work_mode = device["work_mode"]
+
             # Store pending update in coordinator
             if not hasattr(self.coordinator, '_pending_updates'):
                 self.coordinator._pending_updates = {}
-                
+
             self.coordinator._pending_updates[self._device_id] = int(temperature * 10)
-            
-            # Send update to API
+
+            # Send update to API with current work_mode
             await self.hass.async_add_executor_job(
-                self._set_temperature, temperature
+                self._set_temperature, temperature, work_mode
             )
-            
+
             # Refresh data
             await self.coordinator.async_request_refresh()
 
@@ -184,7 +190,7 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
             self._is_setting = False
             self._pending_temperature = None
 
-    def _set_temperature(self, temperature: float) -> None:
+    def _set_temperature(self, temperature: float, work_mode: int) -> None:
         """Send temperature setting to API."""
         if not self.coordinator.token:
             raise ValueError("No auth token")
@@ -194,7 +200,7 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
             "user_id": self.coordinator.user_id,
             "current_temprature": int(temperature * 10),
             "messageId": "261a",
-            "work_mode": 1,
+            "work_mode": work_mode,
             "token": self.coordinator.token,
         }
 
