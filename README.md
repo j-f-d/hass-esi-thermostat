@@ -6,6 +6,7 @@ This is a custom integration for Home Assistant that adds support for controllin
 
 - Retrieve data from the ESI Thermostat API
 - Set target temperatures for thermostats
+- Change thermostat modes
 - Configure update intervals for thermostat data
 - Simple installation and configuration
 
@@ -52,6 +53,8 @@ Once configured, a climate entity will be created for each connected thermostat.
 
 - Set the target temperature
 - Monitor the current temperature
+- Change thermostat modes
+
 
 ## Notes and Troubleshooting
 
