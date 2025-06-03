@@ -18,6 +18,13 @@ DEFAULT_SCAN_INTERVAL_MINUTES: Final = 3
 CONF_SCAN_INTERVAL: Final = "scan_interval_minutes"
 DEFAULT_NAME: Final = "ESI Thermostat"
 
-# Additional constants
-ATTR_INSIDE_TEMPERATURE: Final = "inside_temparature"  # Note: Typo matches API response
-ATTR_CURRENT_TEMPERATURE: Final = "current_temprature"  # Note: Typo matches API response
+# Device Attributes
+ATTR_INSIDE_TEMPERATURE: Final = "inside_temparature"
+ATTR_CURRENT_TEMPERATURE: Final = "current_temprature"
+ATTR_WORK_MODE: Final = "work_mode"
+
+# Work modes
+WORK_MODE_MANUAL: Final = 5
+WORK_MODE_AUTO: Final = 0
+WORK_MODE_AUTO_TEMP_OVERRIDE: Final = 1  # ADD THIS LINE
+WORK_MODE_OFF: Final = 4
