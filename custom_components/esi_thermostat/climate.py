@@ -89,14 +89,13 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
         
-        # State tracking
         self._pending_temperature = None
         self._pending_hvac_mode = None
         self._lock = asyncio.Lock()
         self._update_in_progress = False
         self._last_mode_change = None
         self._pending_states_since = None
-        self._is_mode_change = False  # Track if change is from mode button
+        self._is_mode_change = False
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
@@ -107,7 +106,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Current HVAC mode"""
         if self._pending_hvac_mode is not None:
             return self._pending_hvac_mode
             
@@ -121,7 +119,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_action(self) -> HVACAction | None:
-        """Current HVAC action"""
         if self.hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
             
@@ -137,7 +134,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
 
     @property
     def current_temperature(self) -> float | None:
-        """Current room temperature"""
         if device := self._get_device():
             try:
                 return float(device[ATTR_INSIDE_TEMPERATURE]) / 10
@@ -147,7 +143,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
 
     @property
     def target_temperature(self) -> float | None:
-        """Target temperature setting"""
         if self._pending_temperature is not None:
             return self._pending_temperature
             
@@ -159,11 +154,10 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         return None
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new HVAC mode"""
         self._last_mode_change = asyncio.get_event_loop().time()
         self._pending_hvac_mode = hvac_mode
         self._pending_states_since = asyncio.get_event_loop().time()
-        self._is_mode_change = True  # Flag as mode button change
+        self._is_mode_change = True
         
         if hvac_mode == HVACMode.OFF:
             self._pending_temperature = 5.0
@@ -178,12 +172,11 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         await self._async_update_thermostat()
 
     async def async_set_temperature(self, **kwargs) -> None:
-        """Set target temperature"""
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
             
         current_mode = self.hvac_mode
-        self._is_mode_change = False  # Flag as temperature change
+        self._is_mode_change = False
             
         if current_mode == HVACMode.OFF:
             self._pending_hvac_mode = HVACMode.HEAT
@@ -198,7 +191,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         await self._async_update_thermostat()
 
     async def _async_update_thermostat(self) -> None:
-        """Update thermostat state via API"""
         if self._update_in_progress:
             return
             
@@ -208,12 +200,11 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
                 target_mode = self._pending_hvac_mode or self.hvac_mode
                 target_temp = self._pending_temperature or self.target_temperature
                 
-                # Determine work_mode based on change type
                 if target_mode == HVACMode.AUTO:
                     if self._is_mode_change:
-                        work_mode = WORK_MODE_AUTO  # Mode button change
+                        work_mode = WORK_MODE_AUTO
                     else:
-                        work_mode = WORK_MODE_AUTO_TEMP_OVERRIDE  # Temp change
+                        work_mode = WORK_MODE_AUTO_TEMP_OVERRIDE
                 else:
                     work_mode = self.HVAC_TO_WORK_MODE.get(target_mode)
                 
@@ -240,10 +231,9 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
                     self.async_write_ha_state()
             finally:
                 self._update_in_progress = False
-                self._is_mode_change = False  # Reset flag
+                self._is_mode_change = False
 
     async def _send_api_request(self, work_mode: int, temperature: int) -> None:
-        """Send API request in executor"""
         await self.hass.async_add_executor_job(
             self._set_work_mode,
             work_mode,
@@ -251,7 +241,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         )
 
     def _set_work_mode(self, work_mode: int, temperature: int) -> None:
-        """Send API request to update thermostat"""
         import requests
         
         if not self.coordinator.token:
@@ -267,7 +256,7 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         }
         
         try:
-            response = requests.post(SET_TEMP_URL, params=params, timeout=10)
+            response = requests.post(SET_TEMP_URL, params=params, timeout=5)
             response.raise_for_status()
             response_data = response.json()
         except Exception as err:
@@ -283,42 +272,45 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
                 raise ValueError(f"API error: {response_data}")
 
     def _handle_coordinator_update(self) -> None:
-        """Process coordinator updates"""
         device = self._get_device()
         if not device:
             super()._handle_coordinator_update()
             return
-            
+
         current_time = asyncio.get_event_loop().time()
-            
-        if self._pending_hvac_mode:
+
+        # Check pending HVAC mode separately
+        if self._pending_hvac_mode is not None:
             try:
                 current_mode = self.WORK_MODE_TO_HVAC.get(int(device.get(ATTR_WORK_MODE)))
                 if current_mode == self._pending_hvac_mode:
                     self._pending_hvac_mode = None
-                    self._pending_temperature = None
             except (TypeError, ValueError):
                 pass
-                
-        if self._pending_temperature:
+
+        # Check pending temperature separately
+        if self._pending_temperature is not None:
             try:
-                current_temp = float(device.get(ATTR_CURRENT_TEMPERATURE)) / 10
-                if abs(current_temp - self._pending_temperature) < 0.5:
+                device_temp = float(device.get(ATTR_CURRENT_TEMPERATURE)) / 10
+                # Only clear if device actually matches our pending value
+                if abs(device_temp - self._pending_temperature) < 0.5:
                     self._pending_temperature = None
             except (TypeError, ValueError):
                 pass
-                
-        if (self._pending_states_since and 
-            (current_time - self._pending_states_since) > 10):
+
+        # Clear both if timeout occurs
+        if (
+            self._pending_states_since and 
+            (current_time - self._pending_states_since) > 5
+        ):
             self._pending_hvac_mode = None
             self._pending_temperature = None
             self._pending_states_since = None
-            
+
         self.async_write_ha_state()
         super()._handle_coordinator_update()
 
     def _get_device(self) -> dict | None:
-        """Get device data"""
         return next(
             (d for d in self.coordinator.data.get("devices", []) 
              if d["device_id"] == self._device_id),
@@ -327,7 +319,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
 
     @property
     def available(self) -> bool:
-        """Device availability"""
         return (
             super().available
             and self._get_device() is not None
