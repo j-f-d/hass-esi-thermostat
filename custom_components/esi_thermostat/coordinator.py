@@ -76,7 +76,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         params = {
             "user_id": self.user_id,
             "token": self.token,
-            "device_type": ','.join(['01', '02', '04', '10', '20', '23', '25']),
+            "device_type": '01,02,04,10,20,23,25',
             "pageSize": 100,
         }
 
