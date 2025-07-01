@@ -1,22 +1,20 @@
+"""Coordinator for managing ESI thermostat API data and updates."""
+
 from __future__ import annotations
 
 from datetime import timedelta
-import logging
 from typing import Any
 
+import logging
 import requests
 
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import (
-    LOGIN_URL,
-    DEVICE_LIST_URL,
-    CONF_EMAIL,
-    CONF_PASSWORD,
-)
+from .const import DEVICE_LIST_URL, LOGIN_URL
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class ESIDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage ESI API data with configurable update interval."""
@@ -27,7 +25,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         email: str,
         password: str,
         scan_interval_minutes: int,
-    ):
+    ) -> None:
         """Initialize coordinator."""
         super().__init__(
             hass,
@@ -47,18 +45,16 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._async_login()
 
             devices = await self._async_get_devices()
-            return {"devices": devices}
 
         except Exception as err:
-            _LOGGER.error("Update failed: %s", err, exc_info=True)
+            _LOGGER.exception("Update failed")
             raise UpdateFailed(f"Error communicating with API: {err}") from err
+        else:
+            return {"devices": devices}
 
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
-        payload = {
-            "password": self.password,
-            "email": self.email
-        }
+        payload = {"password": self.password, "email": self.email}
 
         response = await self.hass.async_add_executor_job(
             lambda: requests.post(LOGIN_URL, data=payload, timeout=15)
@@ -76,7 +72,8 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         params = {
             "user_id": self.user_id,
             "token": self.token,
-            "device_type": '01,02,04,10,20,23,25',
+            # Device types (other than 1) from https://github.com/josh-taylor/esi
+            "device_type": "1,2,4,10,20,23,25",
             "pageSize": 100,
         }
 

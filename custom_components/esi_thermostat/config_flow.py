@@ -1,24 +1,25 @@
 """Config flow for ESI Thermostat integration."""
+
 from __future__ import annotations
 
 from typing import Any
-import voluptuous as vol
+
 import requests
+import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
-    DOMAIN,
-    CONF_EMAIL,
-    CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL_MINUTES,
-    LOGIN_URL
+    DOMAIN,
+    LOGIN_URL,
 )
+
 
 class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ESI Thermostat."""
@@ -27,22 +28,19 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
                 valid = await self._test_credentials(
-                    user_input[CONF_EMAIL],
-                    user_input[CONF_PASSWORD]
+                    user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
                 )
-                
+
                 if valid:
-                    options = {
-                        CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL]
-                    }
-                    
+                    options = {CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL]}
+
                     return self.async_create_entry(
                         title=DEFAULT_NAME,
                         data={
@@ -54,19 +52,18 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "incorrect_email_or_password"
             except requests.exceptions.RequestException:
                 errors["base"] = "cannot_connect"
-            except Exception:
-                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_EMAIL): str,
-                vol.Required(CONF_PASSWORD): str,
-                vol.Optional(
-                    CONF_SCAN_INTERVAL,
-                    default=DEFAULT_SCAN_INTERVAL_MINUTES
-                ): cv.positive_int,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_EMAIL): str,
+                    vol.Required(CONF_PASSWORD): str,
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL_MINUTES
+                    ): cv.positive_int,
+                }
+            ),
             errors=errors,
         )
 
@@ -75,9 +72,7 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             response = await self.hass.async_add_executor_job(
                 lambda: requests.post(
-                    LOGIN_URL,
-                    data={"email": email, "password": password},
-                    timeout=10
+                    LOGIN_URL, data={"email": email, "password": password}, timeout=10
                 )
             )
             data = response.json()
@@ -103,20 +98,21 @@ class ESIThermostatOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Optional(
-                    CONF_SCAN_INTERVAL,
-                    default=self.config_entry.options.get(
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
                         CONF_SCAN_INTERVAL,
-                        DEFAULT_SCAN_INTERVAL_MINUTES
-                    )
-                ): cv.positive_int,
-            }),
+                        default=self.config_entry.options.get(
+                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
+                        ),
+                    ): cv.positive_int,
+                }
+            ),
         )
