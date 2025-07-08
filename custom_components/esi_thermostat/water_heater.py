@@ -21,7 +21,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from propcache.api import cached_property
 
 from .const import (
     ATTR_DEVICE_ID,
@@ -203,7 +202,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             finally:
                 self._update_queue.task_done()
 
-    @cached_property
+    @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         if device := self._get_device():
@@ -213,7 +212,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 return None
         return None
 
-    @cached_property
+    @property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
         # Prefer pending temperature if set

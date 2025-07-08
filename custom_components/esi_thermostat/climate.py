@@ -6,8 +6,6 @@ import asyncio
 import contextlib
 import logging
 
-from propcache.api import cached_property
-
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
@@ -163,7 +161,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             finally:
                 self._update_queue.task_done()
 
-    @cached_property
+    @property
     def hvac_mode(self) -> HVACMode:
         """Return the current HVAC mode."""
         # Prefer pending mode if set
@@ -186,7 +184,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 return HVACMode.HEAT
         return HVACMode.HEAT
 
-    @cached_property
+    @property
     def hvac_action(self) -> HVACAction | None:
         """Return the current HVAC action."""
         if self.hvac_mode == HVACMode.OFF:
@@ -202,7 +200,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             return HVACAction.HEATING
         return HVACAction.IDLE
 
-    @cached_property
+    @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         if device := self._get_device():
@@ -212,7 +210,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 return None
         return None
 
-    @cached_property
+    @property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
         # Prefer pending temperature if set
