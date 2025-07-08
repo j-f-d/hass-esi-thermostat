@@ -49,7 +49,8 @@ Restart Home Assistant to load the integration.
 
 ## Usage
 
-Once configured, a climate entity will be created for each connected thermostat. These entities allow you to:
+Once configured, a climate entity will be created for each connected room thermostat, or a water heater
+entity for each programmable cyclinder thermostat. These entities allow you to:
 
 - Set the target temperature
 - Monitor the current temperature
@@ -58,7 +59,9 @@ Once configured, a climate entity will be created for each connected thermostat.
 
 ## Notes and Troubleshooting
 
-- This integration has been tested with **ESI 6 Series** thermostats. Other models may not be supported.
+- This integration has been tested with the **ESCTP5-W** programmable cylinder thermostat.
+- It is derived from work to support **ESI 6 Series** thermostats, so it is hoped, but untested that they still work.
+- Other detected devices will appear as climate entities by default, but are unlikely to work as expected.
 - If the integration does not function as expected, check the Home Assistant logs for errors.
 - Verify that your ESI credentials are correct.
 - If you encounter authentication errors, ensure that your email and password are entered correctly.
