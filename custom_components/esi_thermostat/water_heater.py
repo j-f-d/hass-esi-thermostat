@@ -12,7 +12,6 @@ from homeassistant.components.water_heater import (
     STATE_OFF,
     STATE_ON,
     WaterHeaterEntity,
-    WaterHeaterEntityDescription,
     WaterHeaterEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -106,11 +105,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         STATE_ON: WATERHEATER_WORK_MODE_MANUAL,
     }
 
-    entity_description = WaterHeaterEntityDescription(
-        key="esi_water_heater",
-        name="ESI Water Heater",
-        icon="mdi:water-boiler",
-    )
     _attr_has_entity_name = False
     _attr_supported_features = (
         #        WaterHeaterEntityFeature.AWAY_MODE |
