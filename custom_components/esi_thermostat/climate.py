@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import logging
 
-import requests
 from propcache.api import cached_property
 
 from homeassistant.components.climate import (
@@ -23,16 +22,16 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ATTR_CURRENT_TEMPERATURE,
     ATTR_INSIDE_TEMPERATURE,
+    ATTR_TARGET_TEMPERATURE,
     ATTR_WORK_MODE,
-    DEFAULT_NAME,
+    CLIMATE_WORK_MODE_AUTO,
+    CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE,
+    CLIMATE_WORK_MODE_MANUAL,
+    CLIMATE_WORK_MODE_OFF,
+    DEVICE_TYPES_WATERHEATER,
     DOMAIN,
-    SET_TEMP_URL,
-    WORK_MODE_AUTO,
-    WORK_MODE_AUTO_TEMP_OVERRIDE,
-    WORK_MODE_MANUAL,
-    WORK_MODE_OFF,
+    DEFAULT_NAME,
 )
 from .coordinator import ESIDataUpdateCoordinator
 
@@ -50,11 +49,19 @@ async def async_setup_entry(
     if not coordinator.data:
         await coordinator.async_config_entry_first_refresh()
 
-    entities = []
-    for device in coordinator.data.get("devices", []):
+    entities: list[ClimateEntity] = []
+    # It would be better to just get climate devices, but I don't know what the
+    # device type(s) are for climate devices, so just exclude the water heater types,
+    # since there is a class to handle them explicitly, but nothing else currently.
+    for device in coordinator.get([], DEVICE_TYPES_WATERHEATER):
+        _LOGGER.debug(
+            "Found %s with device_id: %s",
+            device.get("device_name", "Unknown"),
+            device["device_id"],
+        )
         try:
             entities.append(
-                EsiThermostat(
+                EsiClimate(
                     coordinator=coordinator,
                     device_id=device["device_id"],
                     name=device.get("device_name", DEFAULT_NAME),
@@ -67,8 +74,8 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
-class EsiThermostat(CoordinatorEntity, ClimateEntity):
-    """ESI Thermostat Entity."""
+class EsiClimate(CoordinatorEntity, ClimateEntity):
+    """ESI Climate Entity."""
 
     _attr_has_entity_name = False
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
@@ -79,16 +86,16 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
     _attr_target_temperature_step = 0.5
 
     WORK_MODE_TO_HVAC = {
-        WORK_MODE_MANUAL: HVACMode.HEAT,
-        WORK_MODE_AUTO: HVACMode.AUTO,
-        WORK_MODE_AUTO_TEMP_OVERRIDE: HVACMode.AUTO,
-        WORK_MODE_OFF: HVACMode.OFF,
+        CLIMATE_WORK_MODE_MANUAL: HVACMode.HEAT,
+        CLIMATE_WORK_MODE_AUTO: HVACMode.AUTO,
+        CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE: HVACMode.AUTO,
+        CLIMATE_WORK_MODE_OFF: HVACMode.OFF,
     }
 
     HVAC_TO_WORK_MODE = {
-        HVACMode.HEAT: WORK_MODE_MANUAL,
-        HVACMode.AUTO: WORK_MODE_AUTO,
-        HVACMode.OFF: WORK_MODE_OFF,
+        HVACMode.HEAT: CLIMATE_WORK_MODE_MANUAL,
+        HVACMode.AUTO: CLIMATE_WORK_MODE_AUTO,
+        HVACMode.OFF: CLIMATE_WORK_MODE_OFF,
     }
 
     def __init__(
@@ -119,9 +126,11 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         # Initialize with current state
         if device := self._get_device():
             try:
-                self._last_confirmed_temp = float(device[ATTR_CURRENT_TEMPERATURE]) / 10
+                self._last_confirmed_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
                 work_mode = device.get(ATTR_WORK_MODE)
-                work_mode = int(work_mode) if work_mode is not None else WORK_MODE_AUTO
+                work_mode = (
+                    int(work_mode) if work_mode is not None else CLIMATE_WORK_MODE_AUTO
+                )
                 self._last_confirmed_work_mode = work_mode
                 self._last_confirmed_mode = self.WORK_MODE_TO_HVAC.get(
                     work_mode, HVACMode.HEAT
@@ -169,7 +178,9 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         if device := self._get_device():
             try:
                 work_mode = device.get(ATTR_WORK_MODE)
-                work_mode = int(work_mode) if work_mode is not None else WORK_MODE_AUTO
+                work_mode = (
+                    int(work_mode) if work_mode is not None else CLIMATE_WORK_MODE_AUTO
+                )
                 return self.WORK_MODE_TO_HVAC.get(work_mode, HVACMode.HEAT)
             except (TypeError, ValueError):
                 return HVACMode.HEAT
@@ -215,7 +226,7 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
         # Finally try to get from device
         if device := self._get_device():
             try:
-                return float(device[ATTR_CURRENT_TEMPERATURE]) / 10
+                return float(device[ATTR_TARGET_TEMPERATURE]) / 10
             except (ValueError, TypeError):
                 return None
         return None
@@ -296,7 +307,7 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
             if target_mode == HVACMode.AUTO and target_temp is None:
                 if device := self._get_device():
                     try:
-                        target_temp = float(device[ATTR_CURRENT_TEMPERATURE]) / 10
+                        target_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
                     except (TypeError, ValueError):
                         target_temp = self._last_confirmed_temp or 20.0
                 else:
@@ -306,21 +317,25 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
             if target_mode == HVACMode.AUTO:
                 # Use AUTO_TEMP_OVERRIDE if we're already in AUTO and it's not a mode change
                 if not self._is_mode_change and self.hvac_mode == HVACMode.AUTO:
-                    work_mode = WORK_MODE_AUTO_TEMP_OVERRIDE
+                    work_mode = CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE
                 else:
-                    work_mode = WORK_MODE_AUTO
+                    work_mode = CLIMATE_WORK_MODE_AUTO
             else:
                 # Use the HVAC_TO_WORK_MODE mapping for all other modes
-                work_mode = self.HVAC_TO_WORK_MODE.get(target_mode, WORK_MODE_MANUAL)
+                work_mode = self.HVAC_TO_WORK_MODE.get(
+                    target_mode, CLIMATE_WORK_MODE_MANUAL
+                )
 
             if target_temp is None:
-                return
-
-            # Convert to API format
-            api_temp = int(target_temp * 10)
+                api_temp = None
+            else:
+                # Convert to API format
+                api_temp = int(target_temp * 10)
 
             # Send request to server
-            await self._send_api_request(work_mode, api_temp)
+            await self.coordinator.async_set_work_mode(
+                self._device_id, work_mode, api_temp
+            )
 
             # Refresh coordinator to get latest state
             await self.coordinator.async_request_refresh()
@@ -345,41 +360,6 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
             # Refresh to get current server state
             await self.coordinator.async_request_refresh()
 
-    async def _send_api_request(self, work_mode: int, temperature: int) -> None:
-        await self.hass.async_add_executor_job(
-            self._set_work_mode, work_mode, temperature
-        )
-
-    def _set_work_mode(self, work_mode: int, temperature: int) -> None:
-        """Set the thermostat work mode via API."""
-
-        if not self.coordinator.token:
-            raise ValueError("No auth token")
-
-        params = {
-            "device_id": self._device_id,
-            "user_id": self.coordinator.user_id,
-            "current_temprature": temperature,
-            "work_mode": work_mode,
-            "messageId": "261a",
-            "token": self.coordinator.token,
-        }
-
-        try:
-            response = requests.post(SET_TEMP_URL, params=params, timeout=5)
-            response.raise_for_status()
-            response_data = response.json()
-        except Exception as err:
-            raise ValueError(f"API request failed: {err}") from err
-
-        if not response_data.get("statu"):
-            error_msg = response_data.get("message", "Unknown error")
-            error_code = response_data.get("error_code")
-
-            if error_code == 7:
-                raise ValueError(f"Work mode change rejected: {error_msg}")
-            raise ValueError(f"API error: {response_data}")
-
     def _handle_coordinator_update(self) -> None:
         device = self._get_device()
         if not device:
@@ -388,12 +368,12 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
 
         try:
             # Update temperature
-            device_temp = float(device[ATTR_CURRENT_TEMPERATURE]) / 10
+            device_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
             device_work_mode = device.get(ATTR_WORK_MODE)
             device_work_mode = (
                 int(device_work_mode)
                 if device_work_mode is not None
-                else WORK_MODE_AUTO
+                else CLIMATE_WORK_MODE_AUTO
             )
             device_mode = self.WORK_MODE_TO_HVAC.get(device_work_mode, HVACMode.HEAT)
 
@@ -432,7 +412,7 @@ class EsiThermostat(CoordinatorEntity, ClimateEntity):
             None,
         )
 
-    @cached_property
+    @property
     def available(self) -> bool:
         """Return if the entity is available."""
         return (
