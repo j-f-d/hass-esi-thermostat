@@ -369,8 +369,8 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             await self.coordinator.async_request_refresh()
 
     def _handle_coordinator_update(self) -> None:
-        device = self._get_device()
-        if not device:
+        device: dict[str, str] | None = self._get_device()
+        if device is None:
             super()._handle_coordinator_update()
             return
         try:
