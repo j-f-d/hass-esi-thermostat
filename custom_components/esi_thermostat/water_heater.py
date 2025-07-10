@@ -131,8 +131,10 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
+        self._attr_current_operation = None
 
         # Last known server-confirmed state
+        self._last_current_temp: float | None = None
         self._last_confirmed_target_temp: float | None = None
         self._last_confirmed_state: str | None = None
         self._last_confirmed_work_mode: int | None = None
@@ -149,34 +151,15 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         self._update_processor_task = asyncio.create_task(self._process_updates())
         self._initial_update_interval = coordinator.update_interval
 
-        # Initialize with current state
-        if device := self._get_device():
-            try:
-                self._last_confirmed_target_temp = (
-                    float(device[ATTR_TARGET_TEMPERATURE]) / 10
-                )
-            except (ValueError, TypeError):
-                self._last_confirmed_target_temp = None
-
-            work_mode = device.get(ATTR_WORK_MODE)
-            if work_mode is not None:
-                try:
-                    self._last_confirmed_work_mode = int(work_mode)
-                except (ValueError, TypeError):
-                    self._last_confirmed_work_mode = None
-
-        # Try to set the workmode, or indicate that it is unknown if we couldn't
-        # get the device state
-        self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(
-            self._last_confirmed_work_mode, STATE_OFF
-        )
-
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=name,
             manufacturer="ESI Heating",
             model="Water Heater Thermostat",
         )
+
+        # Enqueue initial update to server, to get current state
+        self._enqueue_update()
 
     async def _process_updates(self) -> None:
         """Process update requests sequentially from the queue."""
@@ -194,17 +177,15 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             except Exception:
                 _LOGGER.exception("Error processing update")
             finally:
-                self._update_queue.task_done()
+                with contextlib.suppress(ValueError):
+                    # If the queue was empty, task_done() will raise ValueError
+                    # We can safely ignore this as it means no task was pending
+                    self._update_queue.task_done()
 
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        if device := self._get_device():
-            try:
-                return float(device[ATTR_INSIDE_TEMPERATURE]) / 10
-            except (ValueError, TypeError):
-                return None
-        return None
+        return self._last_current_temp
 
     @property
     def target_temperature(self) -> float | None:
@@ -234,15 +215,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         # Set pending state immediately
         self._pending_work_mode = work_mode
         self._is_state_change = True
-
-        # Update the current operation based on the pending work mode,
-        # so that the UI reflects the intended change
-        self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(
-            self._pending_work_mode, STATE_OFF
-        )
-
-        # Update UI immediately
-        self.async_write_ha_state()
 
         # Enqueue update to server
         await self._async_enqueue_update()
@@ -279,15 +251,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             # Already in manual mode, just set the temperature
             self._pending_target_temperature = temperature
 
-        # Update the current operation based on the pending work mode,
-        # so that the UI reflects the intended change
-        self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(
-            self._pending_work_mode, STATE_OFF
-        )
-
-        # Update UI immediately
-        self.async_write_ha_state()
-
         # Enqueue update to server
         await self._async_enqueue_update()
 
@@ -320,6 +283,8 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
             # Validate we have what we need
             if target_work_mode is None:
+                # Just request an update if no work mode is set, to ensure state is up to date
+                await self.coordinator.async_request_refresh()
                 return
 
             if target_work_mode == WATERHEATER_WORK_MODE_OFF:
@@ -373,30 +338,44 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         if device is None:
             super()._handle_coordinator_update()
             return
+
         try:
-            # Update temperature
+            # Update current temperature
+            self._last_current_temp = float(device[ATTR_INSIDE_TEMPERATURE]) / 10
+        except (TypeError, ValueError):
+            _LOGGER.error(
+                "Failed to parse current temperature for device %s",
+                self._device_id,
+            )
+            self._last_confirmed_target_temp = None
+
+        try:
+            # Update target temperature
             self._last_confirmed_target_temp = (
                 float(device[ATTR_TARGET_TEMPERATURE]) / 10
             )
         except (TypeError, ValueError):
             _LOGGER.error(
-                "Failed to parse target temperature for device %s: %s",
+                "Failed to parse target temperature for device %s",
                 self._device_id,
-                device.get(ATTR_TARGET_TEMPERATURE),
             )
             self._last_confirmed_target_temp = None
 
-        work_mode = device.get(ATTR_WORK_MODE)
-        if work_mode is not None:
-            try:
+        try:
+            work_mode = device.get(ATTR_WORK_MODE)
+            if work_mode is not None:
                 self._last_confirmed_work_mode = int(work_mode)
-            except (ValueError, TypeError):
-                self._last_confirmed_work_mode = None
+        except (ValueError, TypeError):
+            _LOGGER.error(
+                "Failed to parse work mode for device %s",
+                self._device_id,
+            )
+            self._last_confirmed_work_mode = None
 
         # Try to set the workmode, or indicate that it is unknown if we couldn't
         # get the device state
         self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(
-            self._last_confirmed_work_mode, f"unknown({self._last_confirmed_work_mode})"
+            self._last_confirmed_work_mode, None
         )
 
         self._last_confirmed_state = self.WORK_MODE_TO_STATE.get(
