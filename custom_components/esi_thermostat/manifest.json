@@ -4,9 +4,10 @@
   "codeowners": ["@DeclanSC", "@j-f-d"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/DeclanSC/hass-esi-thermostat/",
+  "documentation": "https://github.com/j-f-d/hass-esi-thermostat/",
+  "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/DeclanSC/hass-esi-thermostat/issues",
+  "issue_tracker": "https://github.com/j-f-d/hass-esi-thermostat/issues",
   "requirements": [],
-  "version": "1.2.3-jfd"
+  "version": "1.2.3-jfd.1"
 }
