@@ -144,12 +144,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         self._pending_work_mode: int | None = None
 
         # Track if we're changing state
-        self._is_state_change = False
-
-        # Queue for serializing updates
-        self._update_queue = asyncio.Queue()
-        self._update_processor_task = asyncio.create_task(self._process_updates())
-        self._initial_update_interval = coordinator.update_interval
+        self._normal_update_interval = coordinator.update_interval
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
@@ -158,29 +153,8 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             model="Water Heater Thermostat",
         )
 
-        # Enqueue initial update to server, to get current state
-        self._enqueue_update()
-
-    async def _process_updates(self) -> None:
-        """Process update requests sequentially from the queue."""
-        while True:
-            try:
-                # Get next update request from queue (waits if empty)
-                await self._update_queue.get()
-
-                # Process the update
-                await self._async_perform_update()
-
-            except asyncio.CancelledError:
-                # Task cancelled, exit cleanly
-                return
-            except Exception:
-                _LOGGER.exception("Error processing update")
-            finally:
-                with contextlib.suppress(ValueError):
-                    # If the queue was empty, task_done() will raise ValueError
-                    # We can safely ignore this as it means no task was pending
-                    self._update_queue.task_done()
+        # Set short update to get initial state
+        self.coordinator.update_interval = timedelta(seconds=1)
 
     @property
     def current_temperature(self) -> float | None:
@@ -198,26 +172,17 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         if self._last_confirmed_target_temp is not None:
             return self._last_confirmed_target_temp
 
-        # Finally try to get from device
-        if device := self._get_device():
-            try:
-                self._last_confirmed_target_temp = (
-                    float(device[ATTR_TARGET_TEMPERATURE]) / 10
-                )
-            except (ValueError, TypeError):
-                return None
-            else:
-                return self._last_confirmed_target_temp
+        # If no temperature is set, return None, when state is updated,
+        # the target temperature should then be known.
         return None
 
     async def async_set_water_heater_mode(self, work_mode: int) -> None:
         """Set the HVAC mode."""
         # Set pending state immediately
         self._pending_work_mode = work_mode
-        self._is_state_change = True
 
-        # Enqueue update to server
-        await self._async_enqueue_update()
+        # Request update to server
+        await self._async_perform_update()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the water heater on."""
@@ -246,33 +211,12 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             # Setting temperature from another state (such as off), so go to manual mode
             self._pending_work_mode = WATERHEATER_WORK_MODE_MANUAL
             self._pending_target_temperature = temperature
-            self._is_state_change = True
         else:
             # Already in manual mode, just set the temperature
             self._pending_target_temperature = temperature
 
-        # Enqueue update to server
-        await self._async_enqueue_update()
-
-    def _enqueue_update(self) -> None:
-        """Add update request to the queue."""
-        try:
-            # Clear any existing pending updates to ensure only latest is processed
-            while not self._update_queue.empty():
-                self._update_queue.get_nowait()
-                self._update_queue.task_done()
-
-            # Put latest update request in queue
-            self._update_queue.put_nowait("update")
-        except asyncio.QueueEmpty:
-            # Queue was already empty, just add new request
-            self._update_queue.put_nowait("update")
-        except Exception:
-            _LOGGER.exception("Failed to enqueue update")
-
-    async def _async_enqueue_update(self) -> None:
-        """Enqueue an update request to be processed."""
-        await self._update_queue.put("update")
+        # Request update to server
+        await self._async_perform_update()
 
     async def _async_perform_update(self) -> None:
         """Perform the actual thermostat update."""
@@ -315,12 +259,9 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             )
 
             # Increase the refresh interval to poll regularly until the state is confirmed
-            self.coordinator.update_interval = timedelta(seconds=2)
+            self.coordinator.update_interval = timedelta(seconds=1)
             # Refresh coordinator to trigger immediate update
             await self.coordinator.async_request_refresh()
-
-            # Clear mode change flag after processing
-            self._is_state_change = False
 
         except Exception:
             _LOGGER.exception("Update failed")
@@ -328,7 +269,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             # On failure, clear pending state
             self._pending_target_temperature = None
             self._pending_work_mode = None
-            self._is_state_change = False
 
             # Refresh to get current server state
             await self.coordinator.async_request_refresh()
@@ -402,11 +342,8 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         # If we have no pending changes, we can update less frequently
         if self._pending_target_temperature is None and self._pending_work_mode is None:
             # Reset the update interval if it has been changed
-            if self.coordinator.update_interval != self._initial_update_interval:
-                self.coordinator.update_interval = self._initial_update_interval
-        else:
-            # Enqueue update to server
-            self._enqueue_update()
+            if self.coordinator.update_interval != self._normal_update_interval:
+                self.coordinator.update_interval = self._normal_update_interval
 
         # Update UI
         self.async_write_ha_state()
@@ -430,12 +367,3 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             and self._get_device() is not None
             and self._last_confirmed_work_mode is not None
         )
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Handle entity removal."""
-        if self._update_processor_task:
-            self._update_processor_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._update_processor_task
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._update_processor_task
