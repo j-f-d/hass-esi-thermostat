@@ -428,7 +428,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         return (
             super().available
             and self._get_device() is not None
-            and self.coordinator.token is not None
+            and self._last_confirmed_work_mode is not None
         )
 
     async def async_will_remove_from_hass(self) -> None:

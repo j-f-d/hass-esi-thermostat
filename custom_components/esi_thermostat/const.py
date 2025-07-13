@@ -11,13 +11,10 @@ DOMAIN: Final = "esi_thermostat"
 PLATFORMS: Final[list[Platform]] = [Platform.CLIMATE, Platform.WATER_HEATER]
 
 # API Endpoints
-LOGIN_URL: Final = "https://esiheating.uksouth.cloudapp.azure.com/centro/login"
-DEVICE_LIST_URL: Final = (
-    "https://esiheating.uksouth.cloudapp.azure.com/centro/getDeviceListNew"
-)
-SET_TEMP_URL: Final = (
-    "https://esiheating.uksouth.cloudapp.azure.com/centro/setThermostatWorkModeNew"
-)
+ESICENTRO_URL: Final = "https://esiheating.uksouth.cloudapp.azure.com/centro"
+LOGIN_URL: Final = ESICENTRO_URL + "/login"
+DEVICE_LIST_URL: Final = ESICENTRO_URL + "/getDeviceListNew"
+SET_TEMP_URL: Final = ESICENTRO_URL + "/setThermostatWorkModeNew"
 
 # Configuration
 DEFAULT_SCAN_INTERVAL_MINUTES: Final = 3
@@ -25,7 +22,7 @@ CONF_SCAN_INTERVAL: Final = "scan_interval_minutes"
 DEFAULT_NAME: Final = "ESI Thermostat"
 
 # Device Types
-DEVICE_TYPES_CLIMATE: Final = ["80"]       # Unverified
+DEVICE_TYPES_CLIMATE: Final = ["80"]  # Unverified
 DEVICE_TYPES_WATERHEATER: Final = ["81"]
 
 # Device Attributes
