@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import aiohttp
+import logging
 from typing import Any
-
-import requests
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
@@ -19,6 +20,8 @@ from .const import (
     DOMAIN,
     LOGIN_URL,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -50,7 +53,7 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         options=options,
                     )
                 errors["base"] = "incorrect_email_or_password"
-            except requests.exceptions.RequestException:
+            except aiohttp.ClientError:
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
@@ -69,16 +72,26 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_credentials(self, email: str, password: str) -> bool:
         """Test if the provided credentials are valid."""
-        try:
-            response = await self.hass.async_add_executor_job(
-                lambda: requests.post(
-                    LOGIN_URL, data={"email": email, "password": password}, timeout=10
+        webclient = async_get_clientsession(self.hass)
+        async with webclient.post(
+            LOGIN_URL,
+            data={"email": email, "password": password},
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            if response.status != 200:
+                return False
+            try:
+                # Not the RFC 4627 Content-Type.
+                data = await response.json(content_type="text/json;charset=utf-8")
+            except aiohttp.ContentTypeError:
+                # Continue with the default JSON parsing if ESI update their servers.
+                _LOGGER.info(
+                    "ESI have changed their API, maybe to the proper content-type?"
                 )
-            )
-            data = response.json()
-            return data.get("statu") and bool(data.get("user", {}).get("token"))
-        except requests.exceptions.RequestException:
-            return False
+                # If this fails again, someone will have to look at the response to determine
+                # what content-type is being used now.
+                data = await response.json()
+        return data.get("statu") and bool(data.get("user", {}).get("token"))
 
     @staticmethod
     @callback

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import timedelta
+import logging
 from typing import Any
 
-import requests
+import aiohttp
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -41,16 +42,39 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
             name="esi_thermostat",
             update_interval=timedelta(minutes=scan_interval_minutes),
         )
-        self.email = email
-        self.password = password
-        self.token: str | None = None
-        self.user_id: str | None = None
-        self.message_id: int = 1111
+        self._email = email
+        self._password = password
+        self._token: str | None = None
+        self._user_id: str | None = None
+        self._message_id: int = 1111
+        self._content_type: str | None = "text/json;charset=utf-8"
 
     def next_message_id(self) -> str:
         """Increment and return the message ID."""
-        self.message_id += 1
-        return str(self.message_id)
+        self._message_id += 1
+        return str(self._message_id)
+
+    async def json(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
+        """Parse JSON response from API."""
+        if response.status != 200:
+            raise ValueError(f"API request failed: {response.status}")
+        try:
+            if self._content_type is not None:
+                # Use the specified content type for JSON parsing
+                return await response.json(content_type=self._content_type)
+            # Fallback to default JSON parsing if content type is not set
+            return await response.json()
+        except aiohttp.ContentTypeError:
+            # Not the RFC 4627 Content-Type. The first time we get a ContentTypeError,
+            # we assume the API is not using the wrong content-type and fall back to
+            # using the default for subsequent requests.
+            self._content_type = None  # Use default JSON parsing next time
+            _LOGGER.info("ESI have updated their API, using default JSON parsing")
+            # Retry parsing without the specified content type
+            try:
+                return await response.json()
+            except aiohttp.ContentTypeError as err:
+                raise UpdateFailed("ESI API response not recognised as JSON.") from err
 
     def get(
         self, valid_device_types: list[str], invalid_device_types: list[str]
@@ -72,7 +96,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API."""
         try:
-            if not self.token:
+            if not self._token:
                 await self._async_login()
 
             devices = await self._async_get_devices()
@@ -85,33 +109,40 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
-        payload = {"password": self.password, "email": self.email}
-
-        response = await self.hass.async_add_executor_job(
-            lambda: requests.post(LOGIN_URL, data=payload, timeout=15)
-        )
-        data = response.json()
-
+        payload = {"password": self._password, "email": self._email}
+        webclient = async_get_clientsession(self.hass)
+        async with webclient.post(
+            LOGIN_URL,
+            data=payload,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as response:
+            data = await self.json(response)
         if not data.get("statu") or not data.get("user", {}).get("token"):
             raise UpdateFailed("Login failed")
 
-        self.token = data["user"]["token"]
-        self.user_id = str(data["user"].get("id", ""))
+        self._token = data["user"]["token"]
+        self._user_id = str(data["user"].get("id", ""))
 
     async def _async_get_devices(self) -> list[dict[str, Any]]:
         """Retrieve device list from API."""
+        if not self._token:
+            raise ValueError("No auth token")
+
         params = {
-            "user_id": self.user_id,
-            "token": self.token,
+            "user_id": self._user_id,
+            "token": self._token,
             # Device types (other than 1) from https://github.com/josh-taylor/esi
             ATTR_DEVICE_TYPE: "1,2,4,10,20,23,25",
             "pageSize": 100,
         }
 
-        response = await self.hass.async_add_executor_job(
-            lambda: requests.post(DEVICE_LIST_URL, params=params, timeout=15)
-        )
-        data = response.json()
+        webclient = async_get_clientsession(self.hass)
+        async with webclient.post(
+            DEVICE_LIST_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as response:
+            data = await self.json(response)
 
         if not data.get("statu") or "devices" not in data:
             raise UpdateFailed("Device list fetch failed")
@@ -122,35 +153,34 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         self, device_id: str, work_mode: int, temperature: int
     ) -> None:
         """Set the thermostat work mode via API."""
-        await self.hass.async_add_executor_job(
-            self._set_work_mode, device_id, work_mode, temperature
-        )
-
-    def _set_work_mode(self, device_id: str, work_mode: int, temperature: int) -> None:
-        """Set the thermostat work mode via API."""
-        if not self.token:
+        if not self._token:
             raise ValueError("No auth token")
 
         params = {
-            "user_id": self.user_id,
-            "token": self.token,
+            "user_id": self._user_id,
+            "token": self._token,
             "messageId": self.next_message_id(),  # Message ID doesn't seem to matter, maybe an incremental ID would be better?
             ATTR_DEVICE_ID: device_id,
             ATTR_WORK_MODE: str(work_mode),
             ATTR_TARGET_TEMPERATURE: temperature,
         }
 
-        try:
-            response = requests.post(SET_TEMP_URL, params=params, timeout=5)
-            response.raise_for_status()
-            response_data = response.json()
-        except Exception as err:
-            raise ValueError(f"API request failed: {err}") from err
+        webclient = async_get_clientsession(self.hass)
+        async with webclient.post(
+            SET_TEMP_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as response:
+            data = await self.json(response)
 
-        if not response_data.get("statu"):
-            error_msg = response_data.get("message", "Unknown error")
-            error_code = response_data.get("error_code")
+        if not data.get("statu"):
+            error_msg = data.get("message", "Unknown error")
+            error_code = data.get("error_code")
 
             if error_code == 7:
                 _LOGGER.error("Work mode change rejected: %s", error_msg)
             _LOGGER.error("API error: %s\n", params["work_mode"])
+
+    def available(self) -> bool:
+        """Check if this coordinator is available."""
+        return self._token is not None
