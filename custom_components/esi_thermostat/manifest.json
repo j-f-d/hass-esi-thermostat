@@ -9,5 +9,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/j-f-d/hass-esi-thermostat/issues",
   "requirements": [],
-  "version": "1.2.3-jfd.1"
+  "version": "1.2.4-jfd.1"
 }
