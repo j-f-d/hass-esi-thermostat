@@ -20,6 +20,7 @@ from .const import (
     SET_TEMP_URL,
     DEVICE_LIST_URL,
     LOGIN_URL,
+    MAX_HIGH_FREQUENCY_POLL_COUNT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,19 +36,51 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         password: str,
         scan_interval_minutes: int,
     ) -> None:
+        self._normal_update_interval = timedelta(minutes=scan_interval_minutes)
         """Initialize coordinator."""
         super().__init__(
             hass,
             _LOGGER,
             name="esi_thermostat",
-            update_interval=timedelta(minutes=scan_interval_minutes),
+            update_interval=self._normal_update_interval,
         )
         self._email = email
         self._password = password
         self._token: str | None = None
         self._user_id: str | None = None
         self._message_id: int = 1111
-        self._content_type: str | None = "text/json;charset=utf-8"
+        self._update_retry_count: int = 0
+        self._device_still_wants_refresh: bool = False
+
+    async def async_request_refresh(self) -> None:
+        """Request a refresh."""
+        # A device is requesting an update, so decrease the refresh interval
+        # to poll more frequently until the state is confirmed or
+        # the retry count is exceeded.
+        self._update_retry_count: int = MAX_HIGH_FREQUENCY_POLL_COUNT
+        self.update_interval = timedelta(seconds=1)
+        await super().async_request_refresh()
+
+    async def async_refresh(self) -> None:
+        """Refresh data and log errors."""
+        # Initially, we assume none of the devices will still want a refresh after this update.
+        self._device_still_wants_refresh = False
+        if self._update_retry_count >= 1:
+            self._update_retry_count -= 1
+            if self._update_retry_count == 0:
+                # Reset the update interval to the configured value
+                super().update_interval = self._normal_update_interval
+            return
+        await super().async_refresh()
+        if not self._device_still_wants_refresh:
+            # If no device still needs a refresh, reset the retry count
+            self._update_retry_count = 0
+            # Reset the update interval to the configured value
+            super().update_interval = self._normal_update_interval
+
+    def set_device_still_wants_refresh(self) -> None:
+        """Set the flag indicating a device still wants a refresh."""
+        self._device_still_wants_refresh = True
 
     def next_message_id(self) -> str:
         """Increment and return the message ID."""
@@ -59,22 +92,21 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         if response.status != 200:
             raise ValueError(f"API request failed: {response.status}")
         try:
-            if self._content_type is not None:
-                # Use the specified content type for JSON parsing
-                return await response.json(content_type=self._content_type)
-            # Fallback to default JSON parsing if content type is not set
-            return await response.json()
-        except aiohttp.ContentTypeError:
-            # Not the RFC 4627 Content-Type. The first time we get a ContentTypeError,
-            # we assume the API is not using the wrong content-type and fall back to
-            # using the default for subsequent requests.
-            self._content_type = None  # Use default JSON parsing next time
-            _LOGGER.info("ESI have updated their API, using default JSON parsing")
-            # Retry parsing without the specified content type
-            try:
-                return await response.json()
-            except aiohttp.ContentTypeError as err:
-                raise UpdateFailed("ESI API response not recognised as JSON.") from err
+            # Assume that whatever content type is reported it is valid for JSON parsing
+            # this is necessary because as of writing the ESI API uses "text/json;utf-8"
+            # instead of the RFC 4627 content-type of "application/json".
+            # This is a workaround for the ESI API not using the standard content-type and
+            # could be removed if they change to match the RFC, but
+            # should still work if they do.
+            return await response.json(
+                content_type=response.headers.get(
+                    "content-type", "application/json"
+                ).lower()
+            )
+        except Exception as err:
+            raise UpdateFailed(
+                f"ESI API response not recognised as JSON: {err}."
+            ) from err
 
     def get(
         self, valid_device_types: list[str], invalid_device_types: list[str]

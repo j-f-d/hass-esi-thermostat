@@ -143,8 +143,8 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         self._pending_target_temperature: float | None = None
         self._pending_work_mode: int | None = None
 
-        # Track if we're changing state
-        self._normal_update_interval = coordinator.update_interval
+        # Set short update to get initial state
+        self.coordinator.update_interval = timedelta(seconds=1)
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
@@ -152,9 +152,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             manufacturer="ESI Heating",
             model="Water Heater Thermostat",
         )
-
-        # Set short update to get initial state
-        self.coordinator.update_interval = timedelta(seconds=1)
 
     @property
     def current_temperature(self) -> float | None:
@@ -166,6 +163,8 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         """Return the target temperature."""
         # Use the last confirmed target temperature - this will be none until the
         # first update is received and also when off.
+        if self._last_confirmed_work_mode == WATERHEATER_WORK_MODE_OFF:
+            return None
         return self._last_confirmed_target_temp
 
     async def async_set_water_heater_mode(self, work_mode: int) -> None:
@@ -229,20 +228,23 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 # get the status.
                 target_temp = None
                 self._pending_target_temperature = None
-                self._last_confirmed_target_temp = None
-            elif target_work_mode == WATERHEATER_WORK_MODE_AUTO:
-                # If we're in AUTO mode, we can't change the target temperature,
-                # so we use the last confirmed target temperature.
+            elif target_work_mode in (
+                WATERHEATER_WORK_MODE_AUTO,
+                WATERHEATER_WORK_MODE_MANUAL,
+            ):
+                # If the device is in AUTO mode, is doesn't seem to be possible to change
+                # the target temperature, so use the last confirmed target temperature, as for
+                # MANUAL mode, where it is desirable to use the last set target temperature.
                 target_temp = self._last_confirmed_target_temp
-                # Reset stored temperatures, so that we force the temperature
-                # to be read from the device on the next update
+                # Reset any pending temperatures change, so that when state is updated,
+                # it isn't looking for a pending temperature change.
                 self._pending_target_temperature = None
-                self._last_confirmed_target_temp = None
 
             if target_temp is None:
+                # The API needs a temperature.
                 target_temp = self._attr_min_temp
 
-                # Convert to API format
+            # Convert to API format
             api_temp = int(target_temp * 10)
 
             # Send request to server
@@ -250,8 +252,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 self._device_id, target_work_mode, api_temp
             )
 
-            # Increase the refresh interval to poll regularly until the state is confirmed
-            self.coordinator.update_interval = timedelta(seconds=1)
             # Refresh coordinator to trigger immediate update
             await self.coordinator.async_request_refresh()
 
@@ -274,47 +274,50 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
         try:
             # Update current temperature
-            self._last_current_temp = float(device[ATTR_INSIDE_TEMPERATURE]) / 10
-        except (TypeError, ValueError):
+            last_current_temp = float(device[ATTR_INSIDE_TEMPERATURE]) / 10
+            self._last_current_temp = last_current_temp
+        except (TypeError, ValueError, KeyError):
             _LOGGER.error(
                 "Failed to parse current temperature for device %s",
                 self._device_id,
             )
-            self._last_confirmed_target_temp = None
 
         try:
             work_mode = device.get(ATTR_WORK_MODE)
             if work_mode is not None:
                 self._last_confirmed_work_mode = int(work_mode)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, KeyError):
             _LOGGER.error(
                 "Failed to parse work mode for device %s",
                 self._device_id,
             )
-            self._last_confirmed_work_mode = None
 
-        if self._last_confirmed_work_mode is WATERHEATER_WORK_MODE_OFF:
-            # If the device is off, we don't have a target temperature
-            self._last_confirmed_target_temp = None
-        else:
+        if (
+            self._pending_work_mode is None
+            or self._pending_work_mode == self._last_confirmed_work_mode
+        ) and self._last_confirmed_work_mode is not WATERHEATER_WORK_MODE_OFF:
+            # Only try to change the confirmed target temperature, when the
+            # device is not off, so that we can still turn it on again later,
+            # using the last confirmed target temperature.
             try:
                 # Update target temperature
                 self._last_confirmed_target_temp = (
                     float(device[ATTR_TARGET_TEMPERATURE]) / 10
                 )
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, KeyError):
                 _LOGGER.error(
                     "Failed to parse target temperature for device %s",
                     self._device_id,
                 )
-                self._last_confirmed_target_temp = None
 
-        # Try to set the workmode, or indicate that it is unknown if we couldn't
-        # get the device state
+        # Try to set the current operation, which needs to be one of the values specified in
+        # _attr_operation_list, or None.
         self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(
             self._last_confirmed_work_mode, None
         )
 
+        # Determine the last confirmed state based on the work mode and TH_WORK,
+        # which togetherr indicate if the heater is actively heating, idle or off.
         self._last_confirmed_state = self.WORK_MODE_TO_STATE.get(
             self._last_confirmed_work_mode, STATE_ON
         )
@@ -337,10 +340,15 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             self._pending_work_mode = None
 
         # If we have no pending changes, we can update less frequently
-        if self._pending_target_temperature is None and self._pending_work_mode is None:
-            # Reset the update interval if it has been changed
-            if self.coordinator.update_interval != self._normal_update_interval:
-                self.coordinator.update_interval = self._normal_update_interval
+        if (
+            self._pending_target_temperature is not None
+            or self._pending_work_mode is not None
+        ):
+            # If we still have pending changes, we would like to continue polling at higher
+            # frequency until the state is confirmed. This isn't a guarantee that this will
+            # happen, as the coordinator has a somewhat arbitrary max retry count to avoid
+            # flooding the server with requests.
+            self.coordinator.set_device_still_wants_refresh()
 
         # Update UI
         self.async_write_ha_state()
