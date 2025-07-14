@@ -164,17 +164,9 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
-        # Prefer pending temperature if set
-        if self._pending_target_temperature is not None:
-            return self._pending_target_temperature
-
-        # Fallback to last confirmed temperature
-        if self._last_confirmed_target_temp is not None:
-            return self._last_confirmed_target_temp
-
-        # If no temperature is set, return None, when state is updated,
-        # the target temperature should then be known.
-        return None
+        # Use the last confirmed target temperature - this will be none until the
+        # first update is received and also when off.
+        return self._last_confirmed_target_temp
 
     async def async_set_water_heater_mode(self, work_mode: int) -> None:
         """Set the HVAC mode."""
@@ -219,7 +211,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         await self._async_perform_update()
 
     async def _async_perform_update(self) -> None:
-        """Perform the actual thermostat update."""
+        """Request a thermostat state update via the ESI server."""
         try:
             # Capture pending state at start of update
             target_temp = self._pending_target_temperature
@@ -274,6 +266,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             await self.coordinator.async_request_refresh()
 
     def _handle_coordinator_update(self) -> None:
+        """Update local state as reported by the coordinator."""
         device: dict[str, str] | None = self._get_device()
         if device is None:
             super()._handle_coordinator_update()
@@ -290,18 +283,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             self._last_confirmed_target_temp = None
 
         try:
-            # Update target temperature
-            self._last_confirmed_target_temp = (
-                float(device[ATTR_TARGET_TEMPERATURE]) / 10
-            )
-        except (TypeError, ValueError):
-            _LOGGER.error(
-                "Failed to parse target temperature for device %s",
-                self._device_id,
-            )
-            self._last_confirmed_target_temp = None
-
-        try:
             work_mode = device.get(ATTR_WORK_MODE)
             if work_mode is not None:
                 self._last_confirmed_work_mode = int(work_mode)
@@ -311,6 +292,22 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 self._device_id,
             )
             self._last_confirmed_work_mode = None
+
+        if self._last_confirmed_work_mode is WATERHEATER_WORK_MODE_OFF:
+            # If the device is off, we don't have a target temperature
+            self._last_confirmed_target_temp = None
+        else:
+            try:
+                # Update target temperature
+                self._last_confirmed_target_temp = (
+                    float(device[ATTR_TARGET_TEMPERATURE]) / 10
+                )
+            except (TypeError, ValueError):
+                _LOGGER.error(
+                    "Failed to parse target temperature for device %s",
+                    self._device_id,
+                )
+                self._last_confirmed_target_temp = None
 
         # Try to set the workmode, or indicate that it is unknown if we couldn't
         # get the device state
