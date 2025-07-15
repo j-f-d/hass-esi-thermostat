@@ -14,7 +14,7 @@ This is a custom integration for Home Assistant that adds support for controllin
 
 Just click here to directly go to the repository in HACS and click "Download":
 
-[![hacs-default](https://img.shields.io/badge/HACS-Default-blue.svg?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DeclanSC&repository=hass-esi-thermostat&category=integrations)
+[![hacs-default](https://img.shields.io/badge/HACS-Default-blue.svg?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=j-f-d&repository=hass-esi-thermostat&category=integrations)
 
 Or:
 
@@ -29,7 +29,7 @@ Or:
 Clone the repository or download it as a ZIP file:
 
 ```bash
-git clone https://github.com/DeclanSC/hass-esi-thermostat.git
+git clone https://github.com/j-f-d/hass-esi-thermostat.git
 ```
 
 ### 2. Install the integration
@@ -56,6 +56,29 @@ entity for each programmable cyclinder thermostat. These entities allow you to:
 - Monitor the current temperature
 - Change thermostat modes
 
+The thermostat documentation refers to three main modes of operation, 'Off', 'Manual' and 'Auto' in
+addition to 'Boost', 'Holiday' and 'Sterilise' modes. This integration uses 'Manual' for the
+HASS 'on' mode.
+
+If 'Boost' is attempted from either 'Auto' or 'Manual' mode either at the device or via the
+ESI Centro app, these are treated as 'on' mode by the integration, which will show the boosted
+temperature as the target.
+
+When in 'off' mode, this water heater integration doesn't report a target temperature,
+resulting in a gap when you look at the history graphs. (This is a change in
+behaviour from earlier versions, which would report a target temperature, even
+though it might not really be the active target.)
+
+When transitioning to 'on' mode, this water heater integration attempts to restore the
+last target temperature which has been read in either 'on' or 'auto' mode.
+
+Setting a target temperature causes a transition to the 'on' mode if the thermostat
+was previously operating in another mode.
+
+Although it is possible to transition to auto mode, there is no way to examine or
+change the schedules using this integration.
+
+**_ Holiday and Sterilise Modes are currently untested. _**
 
 ## Notes and Troubleshooting
 
