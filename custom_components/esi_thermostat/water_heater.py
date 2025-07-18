@@ -227,18 +227,19 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 # expect the thermostat to be at min temperature, when we
                 # get the status.
                 target_temp = None
-                self._pending_target_temperature = None
-            elif target_work_mode in (
-                WATERHEATER_WORK_MODE_AUTO,
-                WATERHEATER_WORK_MODE_MANUAL,
-            ):
+            elif target_work_mode == WATERHEATER_WORK_MODE_AUTO:
                 # If the device is in AUTO mode, is doesn't seem to be possible to change
-                # the target temperature, so use the last confirmed target temperature, as for
-                # MANUAL mode, where it is desirable to use the last set target temperature.
+                # the target temperature, so use the last confirmed target temperature.
                 target_temp = self._last_confirmed_target_temp
-                # Reset any pending temperatures change, so that when state is updated,
-                # it isn't looking for a pending temperature change.
-                self._pending_target_temperature = None
+            elif target_work_mode == WATERHEATER_WORK_MODE_MANUAL:
+                # For MANUAL mode,  when, target_temp is none, it is desirable to use the
+                # last set target temperature if that is known.
+                if target_temp is None:
+                    target_temp = self._last_confirmed_target_temp
+
+            # Reset any pending temperatures change, so that when state is updated,
+            # it isn't looking for a pending temperature change.
+            self._pending_target_temperature = None
 
             if target_temp is None:
                 # The API needs a temperature.
