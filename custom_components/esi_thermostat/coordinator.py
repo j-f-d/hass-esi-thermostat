@@ -125,20 +125,6 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
             )
         ]
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from API."""
-        try:
-            if not self._token:
-                await self._async_login()
-
-            devices = await self._async_get_devices()
-
-        except Exception as err:
-            _LOGGER.exception("Update failed")
-            raise UpdateFailed(f"Error communicating with API: {err}") from err
-        else:
-            return {"devices": devices}
-
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
         payload = {"password": self._password, "email": self._email}
@@ -155,10 +141,10 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         self._token = data["user"]["token"]
         self._user_id = str(data["user"].get("id", ""))
 
-    async def _async_get_devices(self) -> list[dict[str, Any]]:
+    async def _async_update_data(self) -> dict[str, Any]:
         """Retrieve device list from API."""
         if not self._token:
-            raise ValueError("No auth token")
+            await self._async_login()
 
         params = {
             "user_id": self._user_id,
@@ -177,16 +163,18 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
             data = await self.json(response)
 
         if not data.get("statu") or "devices" not in data:
+            # Assume token is invalid and clear it so that we re-login next time
+            self._token = None
             raise UpdateFailed("Device list fetch failed")
 
-        return data["devices"]
+        return {"devices": data["devices"]}
 
     async def async_set_work_mode(
         self, device_id: str, work_mode: int, temperature: int
     ) -> None:
         """Set the thermostat work mode via API."""
         if not self._token:
-            raise ValueError("No auth token")
+            await self._async_login()
 
         params = {
             "user_id": self._user_id,
@@ -211,7 +199,10 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
 
             if error_code == 7:
                 _LOGGER.error("Work mode change rejected: %s", error_msg)
-            _LOGGER.error("API error: %s\n", params["work_mode"])
+            else:
+                _LOGGER.error("API error: %s\n", params["work_mode"])
+                # Assume token is invalid and clear it so that we re-login next time
+                self._token = None
 
     def available(self) -> bool:
         """Check if this coordinator is available."""
