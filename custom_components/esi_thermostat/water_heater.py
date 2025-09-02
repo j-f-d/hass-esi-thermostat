@@ -6,7 +6,8 @@ import asyncio
 import contextlib
 import logging
 from datetime import timedelta
-from typing import Any, Final
+from typing import Any, Final, cast
+from functools import cached_property
 
 from homeassistant.components.water_heater import (
     STATE_OFF,
@@ -153,12 +154,12 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             model="Water Heater Thermostat",
         )
 
-    @property
+    @cached_property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self._last_current_temp
 
-    @property
+    @cached_property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
         # Use the last confirmed target temperature - this will be none until the
@@ -249,7 +250,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             api_temp = int(target_temp * 10)
 
             # Send request to server
-            await self.coordinator.async_set_work_mode(
+            await cast(ESIDataUpdateCoordinator, self.coordinator).async_set_work_mode(
                 self._device_id, target_work_mode, api_temp
             )
 
@@ -349,7 +350,9 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             # frequency until the state is confirmed. This isn't a guarantee that this will
             # happen, as the coordinator has a somewhat arbitrary max retry count to avoid
             # flooding the server with requests.
-            self.coordinator.set_device_still_wants_refresh()
+            cast(
+                ESIDataUpdateCoordinator, self.coordinator
+            ).set_device_still_wants_refresh()
 
         # Update UI
         self.async_write_ha_state()
@@ -365,7 +368,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             None,
         )
 
-    @property
+    @cached_property
     def available(self) -> bool:
         """Return if the entity is available."""
         return (
