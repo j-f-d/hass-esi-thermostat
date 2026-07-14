@@ -100,7 +100,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         self, coordinator: ESIDataUpdateCoordinator, device_id: str, name: str
     ) -> None:
         """Initialize the ESI Thermostat entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator)  # ✅ only coordinator goes here
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
@@ -189,13 +189,10 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         """Return the current HVAC action."""
         if self.hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
-
         current_temp = self.current_temperature
         target_temp = self.target_temperature
-
         if current_temp is None or target_temp is None:
             return HVACAction.IDLE
-
         if current_temp < target_temp:
             return HVACAction.HEATING
         return HVACAction.IDLE
@@ -238,6 +235,15 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         # For AUTO mode, don't set a pending temperature - we'll get it from the server
         if hvac_mode == HVACMode.OFF:
             self._pending_temperature = 5.0
+        elif hvac_mode == HVACMode.HEAT:
+            temp = (
+                self._pending_temperature
+                or self._last_confirmed_temp
+                or self.target_temperature
+                or self.current_temperature
+                or 20.0
+            )
+            self._pending_temperature = temp
         else:
             self._pending_temperature = None
 
@@ -284,11 +290,8 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
 
             # Put latest update request in queue
             self._update_queue.put_nowait("update")
-        except asyncio.QueueEmpty:
-            # Queue was already empty, just add new request
-            self._update_queue.put_nowait("update")
-        except Exception:
-            _LOGGER.exception("Failed to enqueue update")
+        except Exception as e:
+            _LOGGER.error("Failed to enqueue update: %s", e)
 
     async def _async_perform_update(self) -> None:
         """Perform the actual thermostat update."""
@@ -300,8 +303,13 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             # Validate we have what we need
             if target_mode is None:
                 return
-
-            # For AUTO mode without temperature, use current device temperature
+            if target_temp is None and target_mode != HVACMode.AUTO:
+                target_temp = (
+                    self._last_confirmed_temp
+                    or self.target_temperature
+                    or self.current_temperature
+                    or 20.0
+                )
             if target_mode == HVACMode.AUTO and target_temp is None:
                 if device := self._get_device():
                     try:
@@ -323,7 +331,6 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 work_mode = self.HVAC_TO_WORK_MODE.get(
                     target_mode, CLIMATE_WORK_MODE_MANUAL
                 )
-
             if target_temp is None:
                 api_temp = None
             else:
@@ -347,9 +354,8 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             # Clear mode change flag after processing
             self._is_mode_change = False
 
-        except Exception:
-            _LOGGER.exception("Update failed")
-
+        except Exception as err:
+            _LOGGER.error("Update failed: %s", err)
             # On failure, clear pending state
             self._pending_temperature = None
             self._pending_hvac_mode = None
@@ -386,13 +392,11 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 and abs(device_temp - self._pending_temperature) < 0.5
             ):
                 self._pending_temperature = None
-
             if (
                 self._pending_hvac_mode is not None
                 and device_mode == self._pending_hvac_mode
             ):
                 self._pending_hvac_mode = None
-
         except (TypeError, ValueError):
             pass
 
