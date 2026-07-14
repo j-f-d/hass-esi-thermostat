@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     ATTR_INSIDE_TEMPERATURE,
     ATTR_TARGET_TEMPERATURE,
+    ATTR_TH_WORK,
     ATTR_WORK_MODE,
     CLIMATE_WORK_MODE_AUTO,
     CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE,
@@ -100,7 +101,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         self, coordinator: ESIDataUpdateCoordinator, device_id: str, name: str
     ) -> None:
         """Initialize the ESI Thermostat entity."""
-        super().__init__(coordinator)  # ✅ only coordinator goes here
+        super().__init__(coordinator)
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
@@ -186,14 +187,19 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_action(self) -> HVACAction | None:
-        """Return the current HVAC action."""
+        """Return the current HVAC action based on the th_work field."""
         if self.hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
-        current_temp = self.current_temperature
-        target_temp = self.target_temperature
-        if current_temp is None or target_temp is None:
+        device = self._get_device()
+        if not device:
             return HVACAction.IDLE
-        if current_temp < target_temp:
+
+        try:
+            th_work = int(device.get(ATTR_TH_WORK, 0))
+        except (TypeError, ValueError):
+            th_work = 0
+
+        if th_work == 1:
             return HVACAction.HEATING
         return HVACAction.IDLE
 
@@ -345,11 +351,9 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             # Refresh coordinator to get latest state
             await self.coordinator.async_request_refresh()
 
-            # Special handling for AUTO mode to get schedule temperature
-            if target_mode == HVACMode.AUTO:
-                # Wait longer for AUTO mode to ensure scheduled temp is fetched
-                await asyncio.sleep(3.0)
-                await self.coordinator.async_request_refresh()
+            # Always perform a follow-up refresh after 3 seconds
+            await asyncio.sleep(3.0)
+            await self.coordinator.async_request_refresh()
 
             # Clear mode change flag after processing
             self._is_mode_change = False
@@ -422,6 +426,15 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             and self._get_device() is not None
             and self._last_confirmed_work_mode is not None
         )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose extra diagnostic attributes."""
+        attrs = {}
+        if device := self._get_device():
+            if ATTR_TH_WORK in device:
+                attrs[ATTR_TH_WORK] = device.get(ATTR_TH_WORK)
+        return attrs
 
     async def async_will_remove_from_hass(self) -> None:
         """Handle entity removal."""
