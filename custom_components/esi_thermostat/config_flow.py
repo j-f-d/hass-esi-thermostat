@@ -43,8 +43,6 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
                 if valid:
-                    options = {CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL]}
-
                     # Set the unique ID as the email address
                     await self.async_set_unique_id(user_input[CONF_EMAIL].lower())
                     # This will prevent re-adding the same account
@@ -56,9 +54,15 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_EMAIL: user_input[CONF_EMAIL],
                             CONF_PASSWORD: user_input[CONF_PASSWORD],
                         },
-                        options=options,
+                        options={
+                            CONF_SCAN_INTERVAL: user_input.get(
+                                CONF_SCAN_INTERVAL,
+                                DEFAULT_SCAN_INTERVAL_MINUTES,
+                            )
+                        },
                     )
                 errors["base"] = "incorrect_email_or_password"
+
             except aiohttp.ClientError:
                 errors["base"] = "cannot_connect"
 
@@ -103,17 +107,13 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
-    ) -> ESIThermostatOptionsFlow:
-        """Get the options flow for this handler."""
-        return ESIThermostatOptionsFlow(config_entry)
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for handler."""
+        return ESIThermostatOptionsFlow()
 
 
 class ESIThermostatOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for ESI Thermostat."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -129,7 +129,8 @@ class ESIThermostatOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_SCAN_INTERVAL,
                         default=self.config_entry.options.get(
-                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
+                            CONF_SCAN_INTERVAL,
+                            DEFAULT_SCAN_INTERVAL_MINUTES
                         ),
                     ): cv.positive_int,
                 }
