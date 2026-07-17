@@ -48,7 +48,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         self._password = password
         self._token: str | None = None
         self._user_id: str | None = None
-        self._message_id: int = 1111
+        self._message_id: int = 0
         self._update_retry_count: int = 0
         self._device_still_wants_refresh: bool = False
 
@@ -82,10 +82,15 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         """Set the flag indicating a device still wants a refresh."""
         self._device_still_wants_refresh = True
 
-    def next_message_id(self) -> str:
+    def _next_message_id(self) -> int:
         """Increment and return the message ID."""
+        # Message ID is sent as a 16bit field to the device with each update, so
+        # it can be used to tie an update with a data dump of the messages received
+        # by the device. It isn't clear what else the server might do with it,
+        # but the devices seems to ignore the messae ID, even if repeated.
         self._message_id += 1
-        return str(self._message_id)
+        self._message_id &= 0xFFFF # Keep the message ID within 16 bits
+        return self._message_id
 
     async def json(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
         """Parse JSON response from API."""
@@ -179,7 +184,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         params = {
             "user_id": self._user_id,
             "token": self._token,
-            "messageId": self.next_message_id(),  # Message ID doesn't seem to matter, maybe an incremental ID would be better?
+            "messageId": f"{self._next_message_id():x}",  # The server expects a hex string for the message ID
             ATTR_DEVICE_ID: device_id,
             ATTR_WORK_MODE: str(work_mode),
             ATTR_TARGET_TEMPERATURE: temperature,
