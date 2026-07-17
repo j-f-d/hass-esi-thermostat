@@ -184,7 +184,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         params = {
             "user_id": self._user_id,
             "token": self._token,
-            "messageId": f"{self._next_message_id():x}",  # The server expects a hex string for the message ID
+            "messageId": f"{self._next_message_id():04x}",  # The server expects a hex string for the message ID
             ATTR_DEVICE_ID: device_id,
             ATTR_WORK_MODE: str(work_mode),
             ATTR_TARGET_TEMPERATURE: temperature,
