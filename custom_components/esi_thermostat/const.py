@@ -38,7 +38,7 @@ ATTR_DEVICE_TYPE: Final = "device_type"
 # To avoid confusion don't use ATTR_CURRENT_TEMPERATURE
 # inside_temperature is what HASS normally calls current_temperature.
 ATTR_INSIDE_TEMPERATURE: Final = "inside_temparature"
-# cuurent_temperature is what HASS normally calls target_temperature.
+# current_temperature is what HASS normally calls target_temperature.
 ATTR_TARGET_TEMPERATURE: Final = "current_temprature"
 ATTR_WORK_MODE: Final = "work_mode"
 ATTR_TH_WORK: Final = "th_work"
