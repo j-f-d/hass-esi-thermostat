@@ -1,6 +1,6 @@
 {
   "domain": "esi_thermostat",
-  "name": "ESI Thermostat",
+  "name": "ESI Thermostat (JFD)",
   "codeowners": ["@DeclanSC", "@j-f-d"],
   "config_flow": true,
   "dependencies": [],

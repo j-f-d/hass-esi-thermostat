@@ -2,6 +2,11 @@
 
 This is a custom integration for Home Assistant that adds support for controlling ESI WiFi Thermostats. It enables temperature management and thermostat configuration directly within Home Assistant.
 
+## Known Supported Devices
+
+- **ESCTP5-W** Programmable Cylinder Thermostat as a Water Heater device
+- **ESRTP6B** Series 6 WiFi Programmable Room Thermostat (derived)
+
 ## Features
 
 - Retrieve data from the ESI Thermostat API
@@ -19,8 +24,10 @@ Just click here to directly go to the repository in HACS and click "Download":
 Or:
 
 - Open HACS
-- Search for "ESI Thermostat"
-- Click "Download" button and install repository in HACS
+- Click the three dots in the top right
+- Select Custom Repositories
+- Paste https://github.com/j-f-d/hass-esi-thermostat as the repository name
+- Select Integration for the type
 
 ## Manual Installation
 
@@ -82,12 +89,12 @@ change the schedules using this integration.
 
 ## Notes and Troubleshooting
 
-- This integration has been tested with the **ESCTP5-W** programmable cylinder thermostat.
+- This integration adds support for and has been tested with the **ESCTP5-W** programmable cylinder thermostat.
 - It is derived from work to support **ESI 6 Series** thermostats, so it is hoped, but untested that they still work.
-- Other detected devices will appear as climate entities by default, but are unlikely to work as expected.
+- Other detected devices will appear as climate entities by default, but are unlikely to work as expected, just like the cylinder thermostat didn't.
 - If the integration does not function as expected, check the Home Assistant logs for errors.
 - Verify that your ESI credentials are correct.
-- If you encounter authentication errors, ensure that your email and password are entered correctly.
+- If you encounter authentication errors, ensure that your email and password are entered correctly and match those used for the ESI Centro app.
 
 ## Contributing
 
