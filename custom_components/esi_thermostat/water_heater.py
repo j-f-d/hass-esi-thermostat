@@ -279,6 +279,17 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 self._device_id,
             )
 
+        if self._last_confirmed_target_temp is None:
+            # Try to use the device's known target temperature, until it has been set by HASS
+            try:
+                last_target_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
+                self._last_confirmed_target_temp = last_target_temp
+            except TypeError, ValueError, KeyError:
+                _LOGGER.error(
+                    "Failed to parse target temperature for device %s",
+                    self._device_id,
+                )
+
         try:
             work_mode = device.get(ATTR_WORK_MODE)
             if work_mode is not None:
