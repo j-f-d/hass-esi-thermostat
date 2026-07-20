@@ -1,7 +1,5 @@
 """ESI Thermostat Climate Platform."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import logging
@@ -28,9 +26,9 @@ from .const import (
     CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE,
     CLIMATE_WORK_MODE_MANUAL,
     CLIMATE_WORK_MODE_OFF,
+    DEFAULT_NAME,
     DEVICE_TYPES_WATERHEATER,
     DOMAIN,
-    DEFAULT_NAME,
 )
 from .coordinator import ESIDataUpdateCoordinator
 

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import logging
 from datetime import timedelta
-from typing import Any, Final, cast
 from functools import cached_property
+import logging
+from typing import Any, Final, cast
 
 from homeassistant.components.water_heater import (
     STATE_OFF,

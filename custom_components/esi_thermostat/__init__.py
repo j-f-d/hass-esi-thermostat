@@ -1,7 +1,5 @@
 """ESI Thermostat integration for Home Assistant."""
 
-from __future__ import annotations
-
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
@@ -10,12 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.typing import ConfigType
 
-from .const import (
-    CONF_SCAN_INTERVAL,
-    DEFAULT_SCAN_INTERVAL_MINUTES,
-    DOMAIN,
-    PLATFORMS,
-)
+from .const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES, DOMAIN, PLATFORMS
 from .coordinator import ESIDataUpdateCoordinator
 
 # Explicitly declare no YAML config is supported (config entry only)

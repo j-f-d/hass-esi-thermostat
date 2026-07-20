@@ -1,7 +1,5 @@
 """Coordinator for managing ESI thermostat API data and updates."""
 
-from __future__ import annotations
-
 from datetime import timedelta
 import logging
 from typing import Any
@@ -17,10 +15,10 @@ from .const import (
     ATTR_DEVICE_TYPE,
     ATTR_TARGET_TEMPERATURE,
     ATTR_WORK_MODE,
-    SET_TEMP_URL,
     DEVICE_LIST_URL,
     LOGIN_URL,
     MAX_HIGH_FREQUENCY_POLL_COUNT,
+    SET_TEMP_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
