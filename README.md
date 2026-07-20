@@ -5,8 +5,7 @@ This is a custom integration for Home Assistant that adds support for controllin
 ## Known Supported Devices
 
 - **ESCTP5-W** Programmable Cylinder Thermostat as a Water Heater device
-- **ESRTP6B** Series 6 WiFi Programmable Room Thermostat (derived from the er
-- )
+- **ESRTP6B** Series 6 WiFi Programmable Room Thermostat (derived from Declan's repo.)
 
 ## Features
 
