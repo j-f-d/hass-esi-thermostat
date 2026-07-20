@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from functools import cached_property
 import logging
 from typing import Any, Final, cast
 
@@ -152,12 +151,12 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             model="Water Heater Thermostat",
         )
 
-    @cached_property
+    @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self._last_current_temp
 
-    @cached_property
+    @property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
         # Use the last confirmed target temperature - this will be none until the
@@ -366,7 +365,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             None,
         )
 
-    @cached_property
+    @property
     def available(self) -> bool:
         """Return if the entity is available."""
         return (
