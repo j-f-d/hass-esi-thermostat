@@ -43,11 +43,6 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
                 if valid:
-                    # Set the unique ID as the email address
-                    await self.async_set_unique_id(user_input[CONF_EMAIL].lower())
-                    # This will prevent re-adding the same account
-                    self._abort_if_unique_id_configured()
-
                     return self.async_create_entry(
                         title=DEFAULT_NAME,
                         data={
