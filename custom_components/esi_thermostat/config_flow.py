@@ -128,8 +128,7 @@ class ESIThermostatOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_SCAN_INTERVAL,
                         default=self.config_entry.options.get(
-                            CONF_SCAN_INTERVAL,
-                            DEFAULT_SCAN_INTERVAL_MINUTES
+                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
                         ),
                     ): cv.positive_int,
                 }

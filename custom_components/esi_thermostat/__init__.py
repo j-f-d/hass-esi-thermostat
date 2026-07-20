@@ -14,6 +14,7 @@ from .coordinator import ESIDataUpdateCoordinator
 # Explicitly declare no YAML config is supported (config entry only)
 CONFIG_SCHEMA = vol.Schema({}, extra=vol.ALLOW_EXTRA)
 
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the ESI Thermostat integration from YAML (not used here)."""
     return True

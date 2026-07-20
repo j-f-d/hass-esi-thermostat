@@ -3,6 +3,9 @@
 import asyncio
 import contextlib
 import logging
+from typing import Any
+
+import aiohttp
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -132,7 +135,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 self._last_confirmed_mode = self.WORK_MODE_TO_HVAC.get(
                     work_mode, HVACMode.HEAT
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         self._attr_device_info = DeviceInfo(
@@ -155,7 +158,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             except asyncio.CancelledError:
                 # Task cancelled, exit cleanly
                 return
-            except Exception:
+            except TimeoutError, aiohttp.ClientError, RuntimeError:
                 _LOGGER.exception("Error processing update")
             finally:
                 self._update_queue.task_done()
@@ -179,7 +182,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                     int(work_mode) if work_mode is not None else CLIMATE_WORK_MODE_AUTO
                 )
                 return self.WORK_MODE_TO_HVAC.get(work_mode, HVACMode.HEAT)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return HVACMode.HEAT
         return HVACMode.HEAT
 
@@ -194,7 +197,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
 
         try:
             th_work = int(device.get(ATTR_TH_WORK, 0))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             th_work = 0
 
         if th_work == 1:
@@ -207,7 +210,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         if device := self._get_device():
             try:
                 return float(device[ATTR_INSIDE_TEMPERATURE]) / 10
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return None
         return None
 
@@ -226,7 +229,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         if device := self._get_device():
             try:
                 return float(device[ATTR_TARGET_TEMPERATURE]) / 10
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return None
         return None
 
@@ -294,8 +297,8 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
 
             # Put latest update request in queue
             self._update_queue.put_nowait("update")
-        except Exception as e:
-            _LOGGER.error("Failed to enqueue update: %s", e)
+        except (asyncio.QueueEmpty, asyncio.QueueFull, ValueError) as err:
+            _LOGGER.error("Failed to enqueue update: %s", err)
 
     async def _async_perform_update(self) -> None:
         """Perform the actual thermostat update."""
@@ -318,7 +321,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 if device := self._get_device():
                     try:
                         target_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         target_temp = self._last_confirmed_temp or 20.0
                 else:
                     target_temp = self._last_confirmed_temp or 20.0
@@ -356,7 +359,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             # Clear mode change flag after processing
             self._is_mode_change = False
 
-        except Exception as err:
+        except (TimeoutError, aiohttp.ClientError, RuntimeError) as err:
             _LOGGER.error("Update failed: %s", err)
             # On failure, clear pending state
             self._pending_temperature = None
@@ -399,7 +402,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
                 and device_mode == self._pending_hvac_mode
             ):
                 self._pending_hvac_mode = None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
 
         # Update UI

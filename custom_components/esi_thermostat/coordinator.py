@@ -34,8 +34,8 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         password: str,
         scan_interval_minutes: int,
     ) -> None:
-        self._normal_update_interval = timedelta(minutes=scan_interval_minutes)
         """Initialize coordinator."""
+        self._normal_update_interval = timedelta(minutes=scan_interval_minutes)
         super().__init__(
             hass,
             _LOGGER,
@@ -87,7 +87,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         # by the device. It isn't clear what else the server might do with it,
         # but the devices seems to ignore the messae ID, even if repeated.
         self._message_id += 1
-        self._message_id &= 0xFFFF # Keep the message ID within 16 bits
+        self._message_id &= 0xFFFF  # Keep the message ID within 16 bits
         return self._message_id
 
     async def json(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
