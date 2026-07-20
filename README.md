@@ -5,9 +5,18 @@ This is a custom integration for Home Assistant that adds support for controllin
 ## Known Supported Devices
 
 - **ESCTP5-W** Programmable Cylinder Thermostat as a Water Heater device
-- **ESRTP6B** Series 6 WiFi Programmable Room Thermostat (derived)
+- **ESRTP6B** Series 6 WiFi Programmable Room Thermostat (derived from the er
+- )
 
 ## Features
+
+Compared to DeclanSC's version, I have:
+
+- Added support for Cylinder Thermostats (as a Water Heater)
+- Replaced any use of synchronous IO with Asynchronous
+- Addressed linting and coding standards issues, attempting to bring in line with HASS recommendations
+
+The common features are:
 
 - Retrieve data from the ESI Thermostat API
 - Set target temperatures for thermostats
