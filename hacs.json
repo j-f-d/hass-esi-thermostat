@@ -1,4 +1,5 @@
 {
   "name": "ESI Thermostat (JFD)",
-  "country": "GB"
+  "country": "GB",
+  "homeassistant": "2025.1.0"
 }
