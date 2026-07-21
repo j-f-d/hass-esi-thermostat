@@ -273,7 +273,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             # Update current temperature
             last_current_temp = float(device[ATTR_INSIDE_TEMPERATURE]) / 10
             self._last_current_temp = last_current_temp
-        except TypeError, ValueError, KeyError:
+        except (TypeError, ValueError, KeyError):
             _LOGGER.error(
                 "Failed to parse current temperature for device %s",
                 self._device_id,
@@ -284,7 +284,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             try:
                 last_target_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
                 self._last_confirmed_target_temp = last_target_temp
-            except TypeError, ValueError, KeyError:
+            except (TypeError, ValueError, KeyError):
                 _LOGGER.error(
                     "Failed to parse target temperature for device %s",
                     self._device_id,
@@ -294,7 +294,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             work_mode = device.get(ATTR_WORK_MODE)
             if work_mode is not None:
                 self._last_confirmed_work_mode = int(work_mode)
-        except ValueError, TypeError, KeyError:
+        except (ValueError, TypeError, KeyError):
             _LOGGER.error(
                 "Failed to parse work mode for device %s",
                 self._device_id,
@@ -312,7 +312,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 self._last_confirmed_target_temp = (
                     float(device[ATTR_TARGET_TEMPERATURE]) / 10
                 )
-            except TypeError, ValueError, KeyError:
+            except (TypeError, ValueError, KeyError):
                 _LOGGER.error(
                     "Failed to parse target temperature for device %s",
                     self._device_id,
