@@ -34,7 +34,7 @@ Or:
 - Open HACS
 - Click the three dots in the top right
 - Select Custom Repositories
-- Paste https://github.com/j-f-d/hass-esi-thermostat as the repository name
+- Paste <https://github.com/j-f-d/hass-esi-thermostat> as the repository name
 - Select Integration for the type
 
 ## Manual Installation
