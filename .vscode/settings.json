@@ -1,0 +1,3 @@
+{
+    "python.analysis.extraPaths": [".venv/Lib", "../hass-core", "../esi-controls-async/src"],
+}

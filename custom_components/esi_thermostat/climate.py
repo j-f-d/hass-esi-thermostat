@@ -2,10 +2,11 @@
 
 import asyncio
 import contextlib
+from enum import IntEnum
 import logging
-from typing import Any
+from typing import Any, cast, Final
 
-import aiohttp
+from esi_controls_async import ESIDevice
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -21,21 +22,30 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ATTR_INSIDE_TEMPERATURE,
-    ATTR_TARGET_TEMPERATURE,
-    ATTR_TH_WORK,
-    ATTR_WORK_MODE,
-    CLIMATE_WORK_MODE_AUTO,
-    CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE,
-    CLIMATE_WORK_MODE_MANUAL,
-    CLIMATE_WORK_MODE_OFF,
     DEFAULT_NAME,
-    DEVICE_TYPES_WATERHEATER,
+    DEVICE_TYPES_WATERHEATER, # For ignored devices (non-climate).
     DOMAIN,
+    WATERHEATER_TH_WORK_HEATING,
 )
 from .coordinator import ESIDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# We should probably allow this to be set in the API.
+DEFAULT_MANUAL_TEMPERATURE: Final = 20.0
+
+class ClimateWorkMode(IntEnum):
+    AUTO = 0
+    AUTO_TEMP_OVERRIDE = 1
+    ALL_DAY = 2
+    BOOST = 3
+    OFF = 4
+    MANUAL = 5
+    HOLIDAY = 6
+    OFF_BOOST = 7
+    HOLIDAY_BOOST = 8
+    MANUAL_BOOST = 9
+
 
 
 async def async_setup_entry(
@@ -53,19 +63,13 @@ async def async_setup_entry(
     # It would be better to just get climate devices, but I don't know what the
     # device type(s) are for climate devices, so just exclude the water heater types,
     # since there is a class to handle them explicitly, but nothing else currently.
-    for device in coordinator.get([], DEVICE_TYPES_WATERHEATER):
-        _LOGGER.debug(
-            "Found %s with device_id: %s",
-            device.get("device_name", "Unknown"),
-            device["device_id"],
-        )
+    for device in coordinator.get(set([]), set(DEVICE_TYPES_WATERHEATER)):
         try:
             entities.append(
                 EsiClimate(
                     coordinator=coordinator,
-                    device_id=device["device_id"],
-                    name=device.get("device_name", DEFAULT_NAME),
-                )
+                    device_id=device.device_id,
+                    name=device.device_name                )
             )
         except KeyError:
             continue
@@ -85,58 +89,40 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
     _attr_max_temp = 35.0
     _attr_target_temperature_step = 0.5
 
-    WORK_MODE_TO_HVAC = {
-        CLIMATE_WORK_MODE_MANUAL: HVACMode.HEAT,
-        CLIMATE_WORK_MODE_AUTO: HVACMode.AUTO,
-        CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE: HVACMode.AUTO,
-        CLIMATE_WORK_MODE_OFF: HVACMode.OFF,
+    WORK_MODE_TO_HVAC: dict[ClimateWorkMode | None, HVACMode | None] = {
+        None: None,
+        ClimateWorkMode.MANUAL: HVACMode.HEAT,
+        ClimateWorkMode.AUTO: HVACMode.AUTO,
+        ClimateWorkMode.AUTO_TEMP_OVERRIDE: HVACMode.AUTO,
+        ClimateWorkMode.OFF: HVACMode.OFF,
     }
 
-    HVAC_TO_WORK_MODE = {
-        HVACMode.HEAT: CLIMATE_WORK_MODE_MANUAL,
-        HVACMode.AUTO: CLIMATE_WORK_MODE_AUTO,
-        HVACMode.OFF: CLIMATE_WORK_MODE_OFF,
+    HVAC_TO_WORK_MODE: dict[HVACMode, ClimateWorkMode] = {
+        HVACMode.HEAT: ClimateWorkMode.MANUAL,
+        HVACMode.AUTO: ClimateWorkMode.AUTO,
+        HVACMode.OFF: ClimateWorkMode.OFF,
     }
 
     def __init__(
-        self, coordinator: ESIDataUpdateCoordinator, device_id: str, name: str
+        self, coordinator: ESIDataUpdateCoordinator, device_id: str, name: str | None = DEFAULT_NAME
     ) -> None:
         """Initialize the ESI Thermostat entity."""
         super().__init__(coordinator)
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
+        self._attr_hvac_mode = None
+        self._attr_target_temperature
 
-        # Last known server-confirmed state
-        self._last_confirmed_temp = None
-        self._last_confirmed_mode = None
-        self._last_confirmed_work_mode = None
+        # Last known server-confirmed state, all none for now, but
+        # will be filled out first update.
+        self._last_current_temp: float | None = None
+        self._last_confirmed_target_temp: float | None = None
+        self._last_confirmed_work_mode: ClimateWorkMode | None = None
 
         # Pending state that hasn't been confirmed by server
-        self._pending_temperature = None
-        self._pending_hvac_mode = None
-
-        # Track if we're changing mode
-        self._is_mode_change = False
-
-        # Queue for serializing updates
-        self._update_queue = asyncio.Queue()
-        self._update_processor_task = asyncio.create_task(self._process_updates())
-
-        # Initialize with current state
-        if device := self._get_device():
-            try:
-                self._last_confirmed_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
-                work_mode = device.get(ATTR_WORK_MODE)
-                work_mode = (
-                    int(work_mode) if work_mode is not None else CLIMATE_WORK_MODE_AUTO
-                )
-                self._last_confirmed_work_mode = work_mode
-                self._last_confirmed_mode = self.WORK_MODE_TO_HVAC.get(
-                    work_mode, HVACMode.HEAT
-                )
-            except TypeError, ValueError:
-                pass
+        self._pending_target_temp = None
+        self._pending_work_mode = None
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
@@ -145,276 +131,174 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             model="Smart Thermostat",
         )
 
-    async def _process_updates(self) -> None:
-        """Process update requests sequentially from the queue."""
-        while True:
-            try:
-                # Get next update request from queue (waits if empty)
-                await self._update_queue.get()
-
-                # Process the update
-                await self._async_perform_update()
-
-            except asyncio.CancelledError:
-                # Task cancelled, exit cleanly
-                return
-            except TimeoutError, aiohttp.ClientError, RuntimeError:
-                _LOGGER.exception("Error processing update")
-            finally:
-                self._update_queue.task_done()
-
-    @property
-    def hvac_mode(self) -> HVACMode:
-        """Return the current HVAC mode."""
-        # Prefer pending mode if set
-        if self._pending_hvac_mode is not None:
-            return self._pending_hvac_mode
-
-        # Fallback to last confirmed mode
-        if self._last_confirmed_mode is not None:
-            return self._last_confirmed_mode
-
-        # Finally try to get from device
-        if device := self._get_device():
-            try:
-                work_mode = device.get(ATTR_WORK_MODE)
-                work_mode = (
-                    int(work_mode) if work_mode is not None else CLIMATE_WORK_MODE_AUTO
-                )
-                return self.WORK_MODE_TO_HVAC.get(work_mode, HVACMode.HEAT)
-            except TypeError, ValueError:
-                return HVACMode.HEAT
-        return HVACMode.HEAT
-
-    @property
-    def hvac_action(self) -> HVACAction | None:
-        """Return the current HVAC action based on the th_work field."""
-        if self.hvac_mode == HVACMode.OFF:
-            return HVACAction.OFF
-        device = self._get_device()
-        if not device:
-            return HVACAction.IDLE
-
-        try:
-            th_work = int(device.get(ATTR_TH_WORK, 0))
-        except TypeError, ValueError:
-            th_work = 0
-
-        if th_work == 1:
-            return HVACAction.HEATING
-        return HVACAction.IDLE
-
-    @property
-    def current_temperature(self) -> float | None:
-        """Return the current temperature."""
-        if device := self._get_device():
-            try:
-                return float(device[ATTR_INSIDE_TEMPERATURE]) / 10
-            except ValueError, TypeError:
-                return None
-        return None
-
-    @property
-    def target_temperature(self) -> float | None:
-        """Return the target temperature."""
-        # Prefer pending temperature if set
-        if self._pending_temperature is not None:
-            return self._pending_temperature
-
-        # Fallback to last confirmed temperature
-        if self._last_confirmed_temp is not None:
-            return self._last_confirmed_temp
-
-        # Finally try to get from device
-        if device := self._get_device():
-            try:
-                return float(device[ATTR_TARGET_TEMPERATURE]) / 10
-            except ValueError, TypeError:
-                return None
-        return None
-
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set the HVAC mode."""
         # Set pending state immediately
-        self._pending_hvac_mode = hvac_mode
-        self._is_mode_change = True
-
-        # For AUTO mode, don't set a pending temperature - we'll get it from the server
         if hvac_mode == HVACMode.OFF:
-            self._pending_temperature = 5.0
-        elif hvac_mode == HVACMode.HEAT:
-            temp = (
-                self._pending_temperature
-                or self._last_confirmed_temp
-                or self.target_temperature
-                or self.current_temperature
-                or 20.0
-            )
-            self._pending_temperature = temp
-        else:
-            self._pending_temperature = None
+            self._pending_target_temp = self._attr_min_temp
+        self._pending_work_mode = self.HVAC_TO_WORK_MODE.get(hvac_mode, None)
 
-        # Update UI immediately
-        self.async_write_ha_state()
-
-        # Enqueue update to server
-        await self._enqueue_update()
+        # Request update to server
+        await self._async_perform_update()
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set the target temperature."""
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
 
-        # Set pending state immediately
-        self._pending_temperature = temperature
-        self._is_mode_change = False
+        if self._last_confirmed_work_mode == ClimateWorkMode.AUTO:
+            # Setting temperature will require manual mode
+            self._pending_work_mode = ClimateWorkMode.AUTO_TEMP_OVERRIDE
+        else:
+            # Setting temperature will require manual mode
+            self._pending_work_mode = ClimateWorkMode.MANUAL
+        self._pending_target_temp = temperature
 
-        # Handle mode transitions
-        current_mode = self.hvac_mode
-        if current_mode == HVACMode.OFF:
-            self._pending_hvac_mode = HVACMode.HEAT
-            self._is_mode_change = True
-        elif current_mode == HVACMode.AUTO:
-            # Keep in AUTO mode but use temp override
-            self._pending_hvac_mode = HVACMode.AUTO
-        else:  # Manual mode
-            # Stay in manual mode
-            self._pending_hvac_mode = HVACMode.HEAT
-
-        # Update UI immediately
-        self.async_write_ha_state()
-
-        # Enqueue update to server
-        await self._enqueue_update()
-
-    async def _enqueue_update(self) -> None:
-        """Add update request to the queue."""
-        try:
-            # Clear any existing pending updates to ensure only latest is processed
-            while not self._update_queue.empty():
-                self._update_queue.get_nowait()
-                self._update_queue.task_done()
-
-            # Put latest update request in queue
-            self._update_queue.put_nowait("update")
-        except (asyncio.QueueEmpty, asyncio.QueueFull, ValueError) as err:
-            _LOGGER.error("Failed to enqueue update: %s", err)
+        # Request update to server
+        await self._async_perform_update()
 
     async def _async_perform_update(self) -> None:
         """Perform the actual thermostat update."""
-        try:
-            # Capture pending state at start of update
-            target_temp = self._pending_temperature
-            target_mode = self._pending_hvac_mode
 
-            # Validate we have what we need
-            if target_mode is None:
+        try:
+            # Whichever function calls this one, it must have set
+            # _pending_work_mode and may have set _pending_target_temp
+            target_temp = self._pending_target_temp
+
+            # The caller didn't set work mode, we'll ignore them
+            if self._pending_work_mode is None:
+                self._pending_target_temp = None
+                # Just request an update if no work mode is set, to ensure state is up to date
+                await self.coordinator.async_request_refresh()
                 return
-            if target_temp is None and target_mode != HVACMode.AUTO:
-                target_temp = (
-                    self._last_confirmed_temp
+
+            # Validate the temperature
+            target_temp = (
+                    self._pending_target_temp
+                    or self._last_confirmed_target_temp
                     or self.target_temperature
                     or self.current_temperature
-                    or 20.0
+                    or DEFAULT_MANUAL_TEMPERATURE
                 )
-            if target_mode == HVACMode.AUTO and target_temp is None:
-                if device := self._get_device():
-                    try:
-                        target_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
-                    except TypeError, ValueError:
-                        target_temp = self._last_confirmed_temp or 20.0
-                else:
-                    target_temp = self._last_confirmed_temp or 20.0
-
-            # Determine API parameters based on target mode
-            if target_mode == HVACMode.AUTO:
-                # Use AUTO_TEMP_OVERRIDE if we're already in AUTO and it's not a mode change
-                if not self._is_mode_change and self.hvac_mode == HVACMode.AUTO:
-                    work_mode = CLIMATE_WORK_MODE_AUTO_TEMP_OVERRIDE
-                else:
-                    work_mode = CLIMATE_WORK_MODE_AUTO
-            else:
-                # Use the HVAC_TO_WORK_MODE mapping for all other modes
-                work_mode = self.HVAC_TO_WORK_MODE.get(
-                    target_mode, CLIMATE_WORK_MODE_MANUAL
-                )
-            if target_temp is None:
-                api_temp = None
-            else:
-                # Convert to API format
-                api_temp = int(target_temp * 10)
 
             # Send request to server
-            await self.coordinator.async_set_work_mode(
-                self._device_id, work_mode, api_temp
+            await cast(ESIDataUpdateCoordinator, self.coordinator).async_set_work_mode(
+                self._device_id, self._pending_work_mode, target_temp
             )
 
             # Refresh coordinator to get latest state
             await self.coordinator.async_request_refresh()
 
-            # Always perform a follow-up refresh after 3 seconds
-            await asyncio.sleep(3.0)
-            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.exception("Update failed: %s", err)
 
-            # Clear mode change flag after processing
-            self._is_mode_change = False
-
-        except (TimeoutError, aiohttp.ClientError, RuntimeError) as err:
-            _LOGGER.error("Update failed: %s", err)
             # On failure, clear pending state
-            self._pending_temperature = None
-            self._pending_hvac_mode = None
-            self._is_mode_change = False
+            self._pending_target_temp = None
+            self._pending_work_mode = None
 
             # Refresh to get current server state
             await self.coordinator.async_request_refresh()
 
+    def _set_hvac_action(self) -> None:
+        """Set the HVAC action attribute based on the th_work field."""
+        if self._attr_hvac_mode == HVACMode.OFF:
+            self._attr_hvac_action = HVACAction.OFF
+        else:
+            device = self._get_device()
+            if device and device.th_work and device.th_work == WATERHEATER_TH_WORK_HEATING:
+                self._attr_hvac_action = HVACAction.HEATING
+            self._attr_hvac_action = HVACAction.IDLE
+
     def _handle_coordinator_update(self) -> None:
-        device = self._get_device()
-        if not device:
+        device: ESIDevice | None = self._get_device()
+        if device is None:
             super()._handle_coordinator_update()
             return
 
+        # First update the work mode and corresponding hvac_mode and hvac_action
         try:
-            # Update temperature
-            device_temp = float(device[ATTR_TARGET_TEMPERATURE]) / 10
-            device_work_mode = device.get(ATTR_WORK_MODE)
-            device_work_mode = (
-                int(device_work_mode)
-                if device_work_mode is not None
-                else CLIMATE_WORK_MODE_AUTO
+            device_work_mode = device.work_mode
+            if device_work_mode is not None:
+                self._last_confirmed_work_mode = ClimateWorkMode(device_work_mode)
+        except (ValueError, TypeError, KeyError):
+            _LOGGER.error(
+                "Failed to parse work mode for device %s",
+                self._device_id,
             )
-            device_mode = self.WORK_MODE_TO_HVAC.get(device_work_mode, HVACMode.HEAT)
+        # Try to set the current hvac_mode, which needs to be one of the values specified in
+        # _attr_hvac_modes, or None.
+        self._attr_hvac_mode = self.WORK_MODE_TO_HVAC.get(self._last_confirmed_work_mode, None)
+        if self._attr_hvac_mode == HVACMode.OFF:
+            self._attr_hvac_action = HVACAction.OFF
+        else:
+            if device.th_work == "1":
+                self._attr_hvac_action = HVACAction.HEATING
+            self._attr_hvac_action = HVACAction.IDLE
 
-            # Update confirmed state from server
-            self._last_confirmed_temp = device_temp
-            self._last_confirmed_mode = device_mode
-            self._last_confirmed_work_mode = device_work_mode
+        # Update current temperature
+        try:
+            self._attr_current_temperature = device.measured_temperature
+            if self._attr_current_temperature is not None:
+                self._last_confirmed_temp = device.measured_temperature
+        except (TypeError, ValueError, KeyError):
+            _LOGGER.error(
+                "Failed to parse current temperature for device %s",
+                self._device_id,
+            )
 
-            # Clear pending if it matches server state
-            if (
-                self._pending_temperature is not None
-                and abs(device_temp - self._pending_temperature) < 0.5
-            ):
-                self._pending_temperature = None
-            if (
-                self._pending_hvac_mode is not None
-                and device_mode == self._pending_hvac_mode
-            ):
-                self._pending_hvac_mode = None
-        except TypeError, ValueError:
-            pass
+        # Until there is a confirmed target temperature, try to use the device's reported target temperature
+        device_target_temp = None
+        try:
+            device_target_temp = device.target_temperature
+        except (TypeError, ValueError, KeyError):
+            _LOGGER.error(
+                "Failed to parse target temperature for device %s",
+                self._device_id,
+            )
+        if self._last_confirmed_target_temp is None:
+            self._last_confirmed_target_temp = device_target_temp
+        if (
+            self._pending_work_mode is None
+            or self._pending_work_mode == self._last_confirmed_work_mode
+        ) and self._last_confirmed_work_mode is not ClimateWorkMode.OFF:
+            # Only try to change the confirmed target temperature, when the
+            # device is not off, so that we can still turn it on again later,
+            # using the last confirmed target temperature.
+            self._last_confirmed_target_temp = device_target_temp
+
+        # Update confirmed state from server
+        # Clear pending if it matches server state
+        if (
+            device_target_temp is not None and self._pending_target_temp is not None
+            and abs(device_target_temp - self._pending_target_temp) < 0.5
+        ):
+            self._pending_target_temp = None
+        if self._last_confirmed_work_mode == self._pending_work_mode:
+            self._pending_work_mode = None
+
+        # If we have no pending changes, we can update less frequently
+        if (
+            self._pending_target_temp is not None
+            or self._pending_work_mode is not None
+        ):
+            # If we still have pending changes, we would like to continue polling at higher
+            # frequency until the state is confirmed. This isn't a guarantee that this will
+            # happen, as the coordinator has a somewhat arbitrary max retry count to avoid
+            # flooding the server with requests.
+            cast(
+                ESIDataUpdateCoordinator, self.coordinator
+            ).set_device_still_wants_refresh()
 
         # Update UI
         self.async_write_ha_state()
         super()._handle_coordinator_update()
 
-    def _get_device(self) -> dict | None:
+    def _get_device(self) -> ESIDevice | None:
         return next(
             (
                 d
                 for d in self.coordinator.data.get("devices", [])
-                if d["device_id"] == self._device_id
+                if d.device_id == self._device_id
             ),
             None,
         )
@@ -427,21 +311,3 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             and self._get_device() is not None
             and self._last_confirmed_work_mode is not None
         )
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose extra diagnostic attributes."""
-        attrs = {}
-        if device := self._get_device():
-            if ATTR_TH_WORK in device:
-                attrs[ATTR_TH_WORK] = device.get(ATTR_TH_WORK)
-        return attrs
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Handle entity removal."""
-        if self._update_processor_task:
-            self._update_processor_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._update_processor_task
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._update_processor_task

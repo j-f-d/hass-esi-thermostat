@@ -5,20 +5,14 @@ import logging
 from typing import Any
 
 import aiohttp
+from esi_controls_async import (ESICentroAPI, ESIDevice, ESIDeviceListError, ESINoAuthorization, ESISetCommandError)
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
-    ATTR_DEVICE_ID,
-    ATTR_DEVICE_TYPE,
-    ATTR_TARGET_TEMPERATURE,
-    ATTR_WORK_MODE,
-    DEVICE_LIST_URL,
-    LOGIN_URL,
     MAX_HIGH_FREQUENCY_POLL_COUNT,
-    SET_TEMP_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,17 +31,20 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize coordinator."""
         self._normal_update_interval = timedelta(minutes=scan_interval_minutes)
         super().__init__(
-            hass,
-            _LOGGER,
+            hass=hass,
+            logger=_LOGGER,
             name="esi_thermostat",
             update_interval=self._normal_update_interval,
         )
         self._email = email
         self._password = password
-        self._token: str | None = None
-        self._user_id: str | None = None
-        self._message_id: int = 0
+        self._esi = ESICentroAPI(session=async_get_clientsession(hass))
         self._update_retry_count: int = 0
+        self._short_update_interval = timedelta(seconds=1)
+        # When a device needs a refresh, this is set true and when an
+        # update happens, it will be set false, but a device can call 
+        # set_device_still_wants_refresh from its _handle_coordinator_update
+        # function to keep polling.
         self._device_still_wants_refresh: bool = False
 
     async def async_request_refresh(self) -> None:
@@ -55,158 +52,84 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator):
         # A device is requesting an update, so decrease the refresh interval
         # to poll more frequently until the state is confirmed or
         # the retry count is exceeded.
-        self._update_retry_count: int = MAX_HIGH_FREQUENCY_POLL_COUNT
-        self.update_interval = timedelta(seconds=1)
+        self._update_retry_count = MAX_HIGH_FREQUENCY_POLL_COUNT
+        self.update_interval = self._short_update_interval
         await super().async_request_refresh()
 
     async def async_refresh(self) -> None:
         """Refresh data and log errors."""
         # Initially, we assume none of the devices will still want a refresh after this update.
         self._device_still_wants_refresh = False
-        if self._update_retry_count >= 1:
-            self._update_retry_count -= 1
-            if self._update_retry_count == 0:
-                # Reset the update interval to the configured value
-                super().update_interval = self._normal_update_interval
-            return
+        self._update_retry_count -= 1
+        if self._update_retry_count <= 0:
+            # Reset the update interval to the configured value
+            self.update_interval = self._normal_update_interval
         await super().async_refresh()
         if not self._device_still_wants_refresh:
             # If no device still needs a refresh, reset the retry count
             self._update_retry_count = 0
             # Reset the update interval to the configured value
-            super().update_interval = self._normal_update_interval
+            self.update_interval = self._normal_update_interval
 
     def set_device_still_wants_refresh(self) -> None:
         """Set the flag indicating a device still wants a refresh."""
         self._device_still_wants_refresh = True
 
-    def _next_message_id(self) -> int:
-        """Increment and return the message ID."""
-        # Message ID is sent as a 16bit field to the device with each update, so
-        # it can be used to tie an update with a data dump of the messages received
-        # by the device. It isn't clear what else the server might do with it,
-        # but the devices seems to ignore the messae ID, even if repeated.
-        self._message_id += 1
-        self._message_id &= 0xFFFF  # Keep the message ID within 16 bits
-        return self._message_id
-
-    async def json(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
-        """Parse JSON response from API."""
-        if response.status != 200:
-            raise ValueError(f"API request failed: {response.status}")
-        try:
-            # Assume that whatever content type is reported it is valid for JSON parsing
-            # this is necessary because as of writing the ESI API uses "text/json;utf-8"
-            # instead of the RFC 4627 content-type of "application/json".
-            # This is a workaround for the ESI API not using the standard content-type and
-            # could be removed if they change to match the RFC, but
-            # should still work if they do.
-            return await response.json(
-                content_type=response.headers.get(
-                    "content-type", "application/json"
-                ).lower()
-            )
-        except Exception as err:
-            raise UpdateFailed(
-                f"ESI API response not recognised as JSON: {err}."
-            ) from err
-
     def get(
-        self, valid_device_types: list[str], invalid_device_types: list[str]
+        self, valid_device_types: set, invalid_device_types: set
     ) -> list[Any]:
         """Get a value from the coordinator data."""
+        def allowed(key: str, valid_set: set, invalid_set: set) -> bool:
+            if valid_set and key not in valid_set:
+                return False
+            if invalid_set and key in invalid_set:
+                return False
+            return True
         return [
             device
             for device in self.data.get("devices", [])
-            if (
-                valid_device_types != []
-                and device[ATTR_DEVICE_TYPE] in valid_device_types
-            )
-            ^ (
-                invalid_device_types != []
-                and device[ATTR_DEVICE_TYPE] not in invalid_device_types
-            )
+            if (allowed(device.devie_type, valid_device_types, invalid_device_types))
         ]
 
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
-        payload = {"password": self._password, "email": self._email}
-        webclient = async_get_clientsession(self.hass)
-        async with webclient.post(
-            LOGIN_URL,
-            data=payload,
-            timeout=aiohttp.ClientTimeout(total=15),
-        ) as response:
-            data = await self.json(response)
-        if not data.get("statu") or not data.get("user", {}).get("token"):
+        await self._esi.login(email=self._email, password=self._password)
+        if not self._esi.available():
             raise UpdateFailed("Login failed")
 
-        self._token = data["user"]["token"]
-        self._user_id = str(data["user"].get("id", ""))
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Retrieve device list from API."""
-        if not self._token:
+        if not self._esi.available():
             await self._async_login()
 
-        params = {
-            "user_id": self._user_id,
-            "token": self._token,
-            # Device types (other than 1) from https://github.com/josh-taylor/esi
-            ATTR_DEVICE_TYPE: "1,2,4,10,20,23,25",
-            "pageSize": 100,
-        }
-
-        webclient = async_get_clientsession(self.hass)
-        async with webclient.post(
-            DEVICE_LIST_URL,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=15),
-        ) as response:
-            data = await self.json(response)
-
-        if not data.get("statu") or "devices" not in data:
-            # Assume token is invalid and clear it so that we re-login next time
-            self._token = None
+        try:
+            await self._esi.async_update_devices()
+        except ESINoAuthorization:
+            raise UpdateFailed("No Authorization")
+        except ESIDeviceListError:
             raise UpdateFailed("Device list fetch failed")
 
-        return {"devices": data["devices"]}
+        raw_devs = self._esi.get_devices()
+        if raw_devs is None:
+            return {"devices": None}
+        return {"devices": {i: ESIDevice(raw_data = d, api=self._esi) for i, d in enumerate(raw_devs)} }
 
     async def async_set_work_mode(
-        self, device_id: str, work_mode: int, temperature: int
+        self, device_id: str, work_mode: int, temperature: float
     ) -> None:
         """Set the thermostat work mode via API."""
-        if not self._token:
+        if not self._esi.available():
             await self._async_login()
 
-        params = {
-            "user_id": self._user_id,
-            "token": self._token,
-            "messageId": f"{self._next_message_id():04x}",  # The server expects a hex string for the message ID
-            ATTR_DEVICE_ID: device_id,
-            ATTR_WORK_MODE: str(work_mode),
-            ATTR_TARGET_TEMPERATURE: temperature,
-        }
+        try:
+            await self._esi.async_set_work_mode(device_id=device_id, work_mode=work_mode,temperature=temperature)
+        except ESINoAuthorization:
+            raise UpdateFailed("No Authorization")
+        except ESISetCommandError:
+            raise UpdateFailed("Work mode rejected")
 
-        webclient = async_get_clientsession(self.hass)
-        async with webclient.post(
-            SET_TEMP_URL,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=5),
-        ) as response:
-            data = await self.json(response)
-
-        if not data.get("statu"):
-            error_msg = data.get("message", "Unknown error")
-            error_code = data.get("error_code")
-
-            if error_code == 7:
-                _LOGGER.error("Work mode change rejected: %s", error_msg)
-            else:
-                _LOGGER.error("API error: %s\n", params["work_mode"])
-                # Assume token is invalid and clear it so that we re-login next time
-                self._token = None
 
     def available(self) -> bool:
         """Check if this coordinator is available."""
-        return self._token is not None
+        return self._esi.available()

@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import aiohttp
+from esi_controls_async import ESICentroAPI
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -81,26 +82,9 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_credentials(self, email: str, password: str) -> bool:
         """Test if the provided credentials are valid."""
-        webclient = async_get_clientsession(self.hass)
-        async with webclient.post(
-            LOGIN_URL,
-            data={"email": email, "password": password},
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as response:
-            if response.status != 200:
-                return False
-            try:
-                # Not the RFC 4627 Content-Type.
-                data = await response.json(content_type="text/json;charset=utf-8")
-            except aiohttp.ContentTypeError:
-                # Continue with the default JSON parsing if ESI update their servers.
-                _LOGGER.info(
-                    "ESI have changed their API, maybe to the proper content-type?"
-                )
-                # If this fails again, someone will have to look at the response to determine
-                # what content-type is being used now.
-                data = await response.json()
-        return data.get("statu") and bool(data.get("user", {}).get("token"))
+        esi = ESICentroAPI(session = async_get_clientsession(self.hass))
+        await esi.login(email=email, password=password)
+        return esi.available()
 
     @staticmethod
     @callback
