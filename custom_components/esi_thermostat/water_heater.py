@@ -38,8 +38,10 @@ OPERATION_BOOST: Final = "boost"
 # We should probably allow this to be set in the API.
 DEFAULT_MANUAL_TEMPERATURE: Final = 55.0
 
+
 class WaterHeaterWorkMode(IntEnum):
     """Work mode for Water Heater devices."""
+
     # The temperature is set based on a schedule, learned behavior, AI or some
     # other related mechanism. User is not able to adjust the temperature
     AUTO = 0
@@ -64,13 +66,13 @@ async def async_setup_entry(
         await coordinator.async_config_entry_first_refresh()
 
     entities: list[WaterHeaterEntity] = []
-    for device in coordinator.get(set(DEVICE_TYPES_WATERHEATER), set([])):
+    for device in coordinator.get(set(DEVICE_TYPES_WATERHEATER), set()):
         try:
             entities.append(
                 EsiWaterHeater(
                     coordinator=coordinator,
                     device_id=device.device_id,
-                    name=device.device_name
+                    name=device.device_name,
                 )
             )
         except KeyError:
@@ -130,7 +132,10 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
     _attr_precision = 0.5
 
     def __init__(
-        self, coordinator: ESIDataUpdateCoordinator, device_id: str, name: str | None = DEFAULT_NAME
+        self,
+        coordinator: ESIDataUpdateCoordinator,
+        device_id: str,
+        name: str | None = DEFAULT_NAME,
     ) -> None:
         """Initialize the ESI Water Heater Entity."""
         super().__init__(coordinator)
@@ -138,7 +143,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
         self._attr_current_operation = None
-        self._attr_current_temp = None
+        self._attr_current_temperature = None
         self._attr_target_temperature = None
 
         # Last known server-confirmed state, all none for now, but
@@ -227,7 +232,6 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             if target_temp is None:
                 target_temp = DEFAULT_MANUAL_TEMPERATURE
 
-
             # Send request to server
             await cast(ESIDataUpdateCoordinator, self.coordinator).async_set_work_mode(
                 self._device_id, self._pending_work_mode, target_temp
@@ -274,14 +278,17 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             self._last_confirmed_work_mode, STATE_ON
         )
         if self._last_confirmed_state == STATE_ON:
-            if device.th_work is not None and device.th_work == WATERHEATER_TH_WORK_IDLE:
+            if (
+                device.th_work is not None
+                and device.th_work == WATERHEATER_TH_WORK_IDLE
+            ):
                 # When TH_WORK is 0, it means the heater is at the desired temperature
                 # but the work mode is still ON, so we consider it idle
                 self._last_confirmed_state = STATE_IDLE
 
         try:
             # Update current temperature read from the device
-            self._attr_current_temp = device.measured_temperature
+            self._attr_current_temperature = device.measured_temperature
         except (TypeError, ValueError, KeyError):
             _LOGGER.error(
                 "Failed to parse current temperature for device %s",
@@ -319,10 +326,7 @@ class EsiWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             self._pending_work_mode = None
 
         # If we have no pending changes, we can update less frequently
-        if (
-            self._pending_target_temp is not None
-            or self._pending_work_mode is not None
-        ):
+        if self._pending_target_temp is not None or self._pending_work_mode is not None:
             # If we still have pending changes, we would like to continue polling at higher
             # frequency until the state is confirmed. This isn't a guarantee that this will
             # happen, as the coordinator has a somewhat arbitrary max retry count to avoid

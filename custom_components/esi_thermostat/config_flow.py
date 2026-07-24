@@ -18,7 +18,6 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
-    LOGIN_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,7 +81,7 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_credentials(self, email: str, password: str) -> bool:
         """Test if the provided credentials are valid."""
-        esi = ESICentroAPI(session = async_get_clientsession(self.hass))
+        esi = ESICentroAPI(session=async_get_clientsession(self.hass))
         await esi.login(email=email, password=password)
         return esi.available()
 

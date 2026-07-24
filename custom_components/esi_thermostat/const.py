@@ -10,12 +10,6 @@ DOMAIN: Final = "esi_thermostat"
 # Platforms
 PLATFORMS: Final[list[Platform]] = [Platform.CLIMATE, Platform.WATER_HEATER]
 
-# API Endpoints
-ESICENTRO_URL: Final = "https://esiheating.uksouth.cloudapp.azure.com/centro"
-LOGIN_URL: Final = ESICENTRO_URL + "/login"
-DEVICE_LIST_URL: Final = ESICENTRO_URL + "/getDeviceListNew"
-SET_TEMP_URL: Final = ESICENTRO_URL + "/setThermostatWorkModeNew"
-
 # Configuration
 DEFAULT_NAME: Final = "ESI Thermostat"
 # Since the API requires us to poll the server, we limit the
