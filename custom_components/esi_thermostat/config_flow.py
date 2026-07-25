@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from esi_controls_async import ESICentroAPI
+from esi_controls_async import ESICentroAPI, ESILoginError, ESIServerError
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -11,6 +11,11 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import (
     CONF_SCAN_INTERVAL,
@@ -35,41 +40,44 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            try:
-                valid = await self._test_credentials(
-                    user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
+            errors = await self._test_credentials(
+                user_input[CONF_EMAIL].lower(), user_input[CONF_PASSWORD]
+            )
+            if not errors:
+                # Set the unique ID as the email address
+                await self.async_set_unique_id(user_input[CONF_EMAIL].lower)
+                # This will prevent re-adding the same account
+                self._abort_if_unique_id_configured()
+
+                return self.async_create_entry(
+                    title=DEFAULT_NAME,
+                    data={
+                        CONF_EMAIL: user_input[CONF_EMAIL].lower,
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                    },
+                    options={
+                        CONF_SCAN_INTERVAL: user_input.get(
+                            CONF_SCAN_INTERVAL,
+                            DEFAULT_SCAN_INTERVAL_MINUTES,
+                        )
+                    },
                 )
-
-                if valid:
-                    # Set the unique ID as the email address
-                    await self.async_set_unique_id(user_input[CONF_EMAIL].lower())
-                    # This will prevent re-adding the same account
-                    self._abort_if_unique_id_configured()
-
-                    return self.async_create_entry(
-                        title=DEFAULT_NAME,
-                        data={
-                            CONF_EMAIL: user_input[CONF_EMAIL],
-                            CONF_PASSWORD: user_input[CONF_PASSWORD],
-                        },
-                        options={
-                            CONF_SCAN_INTERVAL: user_input.get(
-                                CONF_SCAN_INTERVAL,
-                                DEFAULT_SCAN_INTERVAL_MINUTES,
-                            )
-                        },
-                    )
-                errors["base"] = "incorrect_email_or_password"
-
-            except:
-                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_EMAIL): str,
-                    vol.Required(CONF_PASSWORD): str,
+                    vol.Required(CONF_EMAIL): TextSelector(
+                        TextSelectorConfig(
+                            type=TextSelectorType.EMAIL, autocomplete="username"
+                        )
+                    ),
+                    vol.Required(CONF_PASSWORD): TextSelector(
+                        TextSelectorConfig(
+                            type=TextSelectorType.PASSWORD,
+                            autocomplete="current-password",
+                        )
+                    ),
                     vol.Optional(
                         CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL_MINUTES
                     ): cv.positive_int,
@@ -78,11 +86,16 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def _test_credentials(self, email: str, password: str) -> bool:
+    async def _test_credentials(self, email: str, password: str) -> dict[str, str]:
         """Test if the provided credentials are valid."""
         esi = ESICentroAPI(session=async_get_clientsession(self.hass))
-        await esi.async_login(email=email, password=password)
-        return esi.available()
+        try:
+            await esi.async_login(email=email, password=password)
+        except ESIServerError:
+            return ["base", "cannot_connect"]
+        except ESILoginError:
+            return ["base", "incorrect_email_or_password"]
+        return {} if esi.available() else ["base", "unknown"]
 
     @staticmethod
     @callback

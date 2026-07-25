@@ -7,7 +7,9 @@ from esi_controls_async import (
     ESICentroAPI,
     ESIDevice,
     ESIDeviceListError,
+    ESILoginError,
     ESINoAuthorization,
+    ESIServerError,
     ESISetCommandError,
 )
 
@@ -121,17 +123,27 @@ class ESIDataUpdateCoordinator(
 
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
-        await self._esi.async_login(email=self._email, password=self._password)
+        try:
+            await self._esi.async_login(email=self._email, password=self._password)
+        except ESIServerError as exc:
+            raise UpdateFailed("Post failed") from exc
+        except ESILoginError as exc:
+            raise UpdateFailed("Login failed") from exc
         if not self._esi.available():
             raise UpdateFailed("Login failed")
 
     async def _async_update_data(self) -> dict[str, list[ESIDevice] | None]:
         """Retrieve device list from API."""
         if not self._esi.available():
-            await self._async_login()
+            try:
+                await self._async_login()
+            except UpdateFailed as exc:
+                raise UpdateFailed("Login error") from exc
 
         try:
             await self._esi.async_update_devices()
+        except ESIServerError as exc:
+            raise UpdateFailed("Post failed") from exc
         except ESINoAuthorization as exc:
             raise UpdateFailed("No Authorization") from exc
         except ESIDeviceListError as exc:
@@ -147,10 +159,15 @@ class ESIDataUpdateCoordinator(
     ) -> None:
         """Set the thermostat work mode via API."""
         if not self._esi.available():
-            await self._async_login()
+            try:
+                await self._async_login()
+            except UpdateFailed as exc:
+                raise UpdateFailed("Login error") from exc
 
         try:
             await dev.async_set_work_mode(work_mode=work_mode, temperature=temperature)
+        except ESIServerError as exc:
+            raise UpdateFailed("Post failed") from exc
         except ESINoAuthorization as exc:
             raise UpdateFailed("No Authorization") from exc
         except ESISetCommandError as exc:
