@@ -82,7 +82,7 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _test_credentials(self, email: str, password: str) -> bool:
         """Test if the provided credentials are valid."""
         esi = ESICentroAPI(session=async_get_clientsession(self.hass))
-        await esi.login(email=email, password=password)
+        await esi.async_login(email=email, password=password)
         return esi.available()
 
     @staticmethod
