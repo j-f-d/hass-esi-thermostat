@@ -35,6 +35,8 @@ The common features are:
 
 ## HACS Installation
 
+### HACS Installation
+
 <!-- Just click here to directly go to the repository in HACS and click "Download":
 
 [![hacs-default](https://img.shields.io/badge/HACS-Default-blue.svg?style=for-the-badge)](https://my.home-assistant.io/redirect/hacs_repository/?owner=j-f-d&repository=hass-esi-thermostat&category=integrations)
@@ -47,7 +49,7 @@ Or: -->
 - Paste <https://github.com/j-f-d/hass-esi-thermostat> as the repository name
 - Select Integration for the type
 
-## Manual Installation
+### Manual Installation
 
 ### 1. Download the repository
 
@@ -65,7 +67,7 @@ Copy the esi_thermostat folder to your Home Assistant custom_components director
 
 Restart Home Assistant to load the integration.
 
-### 3. Configure the integration
+## Configuration
 
 1. In Home Assistant, navigate to **Settings** > **Devices and services** > **Add Integration**
 2. Search for **ESI Thermostat**
