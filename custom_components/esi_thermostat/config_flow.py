@@ -92,10 +92,10 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             await esi.async_login(email=email, password=password)
         except ESIServerError:
-            return ["base", "cannot_connect"]
+            return {"base": "cannot_connect"}
         except ESILoginError:
-            return ["base", "incorrect_email_or_password"]
-        return {} if esi.available() else ["base", "unknown"]
+            return {"base": "incorrect_email_or_password"}
+        return {} if esi.available() else {"base": "unknown"}
 
     @staticmethod
     @callback
