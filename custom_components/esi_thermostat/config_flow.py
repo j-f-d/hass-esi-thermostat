@@ -3,7 +3,6 @@
 import logging
 from typing import Any
 
-import aiohttp
 from esi_controls_async import ESICentroAPI
 import voluptuous as vol
 
@@ -62,7 +61,7 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 errors["base"] = "incorrect_email_or_password"
 
-            except aiohttp.ClientError:
+            except:
                 errors["base"] = "cannot_connect"
 
         return self.async_show_form(
