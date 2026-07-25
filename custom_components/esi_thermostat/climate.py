@@ -2,9 +2,7 @@
 
 from enum import IntEnum
 import logging
-from typing import Final, cast
-
-from esi_controls_async import ESIDevice
+from typing import Final
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -23,7 +21,7 @@ from .const import (
     DEFAULT_NAME,
     DEVICE_TYPES_WATERHEATER,  # For ignored devices (non-climate).
     DOMAIN,
-    WATERHEATER_TH_WORK_HEATING,
+    WATERHEATER_TH_WORK_IDLE,
 )
 from .coordinator import ESIDataUpdateCoordinator
 
@@ -57,7 +55,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Initialize climate platform."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    coordinator: ESIDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        "coordinator"
+    ]
 
     if not coordinator.data:
         await coordinator.async_config_entry_first_refresh()
@@ -67,12 +67,18 @@ async def async_setup_entry(
     # device type(s) are for climate devices, so just exclude the water heater types,
     # since there is a class to handle them explicitly, but nothing else currently.
     for device in coordinator.get(set(), set(DEVICE_TYPES_WATERHEATER)):
+        if device is None:
+            continue
+        device_id = device.device_id
+        device_name = device.device_name
+        if device_id is None or device_name is None:
+            continue
         try:
             entities.append(
                 EsiClimate(
                     coordinator=coordinator,
-                    device_id=device.device_id,
-                    name=device.device_name,
+                    device_id=device_id,
+                    name=device_name,
                 )
             )
         except KeyError:
@@ -82,7 +88,7 @@ async def async_setup_entry(
         async_add_entities(entities)
 
 
-class EsiClimate(CoordinatorEntity, ClimateEntity):
+class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
     """ESI Climate Entity."""
 
     _attr_has_entity_name = False
@@ -165,61 +171,61 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
     async def _async_perform_update(self) -> None:
         """Perform the actual thermostat update."""
 
-        try:
-            # Whichever function calls this one, it must have set
-            # _pending_work_mode and may have set _pending_target_temp
-            target_temp = self._pending_target_temp
+        device = self.coordinator.get_device(self._device_id)
 
-            # The caller didn't set work mode, we'll ignore them
-            if self._pending_work_mode is None:
-                self._pending_target_temp = None
-                # Just request an update if no work mode is set, to ensure state is up to date
-                await self.coordinator.async_request_refresh()
-                return
-
-            # Validate the temperature
-            target_temp = (
-                self._pending_target_temp
-                or self._last_confirmed_target_temp
-                or self.target_temperature
-                or self._attr_current_temperature
-                or DEFAULT_MANUAL_TEMPERATURE
-            )
-
-            # Send request to server
-            await cast(ESIDataUpdateCoordinator, self.coordinator).async_set_work_mode(
-                self._device_id, self._pending_work_mode, target_temp
-            )
-
-            # Refresh coordinator to get latest state
-            await self.coordinator.async_request_refresh()
-
-        except Exception:
-            _LOGGER.exception("Update failed")
-
+        # Whichever function calls this one, it should have set
+        # _pending_work_mode and may have set _pending_target_temp and
+        # there should be a device
+        if device is None or self._pending_work_mode is None:
             # On failure, clear pending state
             self._pending_target_temp = None
             self._pending_work_mode = None
 
             # Refresh to get current server state
             await self.coordinator.async_request_refresh()
+            return
 
-    def _set_hvac_action(self) -> None:
-        """Set the HVAC action attribute based on the th_work field."""
-        if self._attr_hvac_mode == HVACMode.OFF:
-            self._attr_hvac_action = HVACAction.OFF
-        else:
-            device = self._get_device()
-            if (
-                device
-                and device.th_work
-                and device.th_work == WATERHEATER_TH_WORK_HEATING
-            ):
-                self._attr_hvac_action = HVACAction.HEATING
-            self._attr_hvac_action = HVACAction.IDLE
+        # The ESI API really needs a temperature, so make sure it isn't None.
+        target_temp = (
+            # First choice is the pending temperature, which may not be set if just changing modes
+            self._pending_target_temp
+            # First fallback is the last confirmed target temp if possible, since that
+            # is most likely what will be desired for the next off->manual transition
+            or self._last_confirmed_target_temp
+        )
+        if target_temp is None:
+            # Next, use the device target temperature if it is greater than the minimum
+            dt = device.target_temperature
+            if dt is not None and dt > self._attr_min_temp:
+                target_temp = dt
+        if target_temp is None:
+            # Try the current room temperature to prevent us getting colder.
+            target_temp = self.current_temperature
+        if (
+            target_temp is None
+            or target_temp < self._attr_min_temp
+            or target_temp > self._attr_max_temp
+        ):
+            # Last resort, use the default, so that we aren't breading lysteria
+            target_temp = DEFAULT_MANUAL_TEMPERATURE
+
+        try:
+            # Send request to server
+            await self.coordinator.async_set_work_mode(
+                device, self._pending_work_mode, target_temp
+            )
+        except Exception:
+            _LOGGER.exception("Update failed")
+
+            # On failure, clear pending state
+            self._pending_target_temp = None
+            self._pending_work_mode = None
+        finally:
+            # Refresh to get current server state
+            await self.coordinator.async_request_refresh()
 
     def _handle_coordinator_update(self) -> None:
-        device: ESIDevice | None = self._get_device()
+        device = self.coordinator.get_device(self._device_id)
         if device is None:
             super()._handle_coordinator_update()
             return
@@ -242,9 +248,9 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_action = HVACAction.OFF
         else:
-            if device.th_work == "1":
-                self._attr_hvac_action = HVACAction.HEATING
-            self._attr_hvac_action = HVACAction.IDLE
+            if device.th_work == WATERHEATER_TH_WORK_IDLE:
+                self._attr_hvac_action = HVACAction.IDLE
+            self._attr_hvac_action = HVACAction.HEATING
 
         # Update current temperature
         try:
@@ -259,6 +265,7 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         device_target_temp = None
         try:
             device_target_temp = device.target_temperature
+            self._attr_target_temperature = device_target_temp
         except (TypeError, ValueError, KeyError):
             _LOGGER.error(
                 "Failed to parse target temperature for device %s",
@@ -267,9 +274,15 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
         if self._last_confirmed_target_temp is None:
             self._last_confirmed_target_temp = device_target_temp
         if (
-            self._pending_work_mode is None
-            or self._pending_work_mode == self._last_confirmed_work_mode
-        ) and self._last_confirmed_work_mode is not ClimateWorkMode.OFF:
+            (
+                self._pending_work_mode is None
+                or self._pending_work_mode == self._last_confirmed_work_mode
+            )
+            and self._last_confirmed_work_mode is not ClimateWorkMode.OFF
+            and device_target_temp
+            and device_target_temp > self._attr_min_temp
+            and device_target_temp < self._attr_max_temp
+        ):
             # Only try to change the confirmed target temperature, when the
             # device is not off, so that we can still turn it on again later,
             # using the last confirmed target temperature.
@@ -292,29 +305,17 @@ class EsiClimate(CoordinatorEntity, ClimateEntity):
             # frequency until the state is confirmed. This isn't a guarantee that this will
             # happen, as the coordinator has a somewhat arbitrary max retry count to avoid
             # flooding the server with requests.
-            cast(
-                ESIDataUpdateCoordinator, self.coordinator
-            ).set_device_still_wants_refresh()
+            self.coordinator.set_device_still_wants_refresh()
 
         # Update UI
         self.async_write_ha_state()
         super()._handle_coordinator_update()
-
-    def _get_device(self) -> ESIDevice | None:
-        return next(
-            (
-                d
-                for d in self.coordinator.data.get("devices", [])
-                if d.device_id == self._device_id
-            ),
-            None,
-        )
 
     @property
     def available(self) -> bool:
         """Return if the entity is available."""
         return (
             super().available
-            and self._get_device() is not None
+            and self.coordinator.get_device(self._device_id) is not None
             and self._last_confirmed_work_mode is not None
         )

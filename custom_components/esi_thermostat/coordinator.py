@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 import logging
-from typing import Any
 
 from esi_controls_async import (
     ESICentroAPI,
@@ -21,7 +20,9 @@ from .const import MAX_HIGH_FREQUENCY_POLL_COUNT
 _LOGGER = logging.getLogger(__name__)
 
 
-class ESIDataUpdateCoordinator(DataUpdateCoordinator[dict[str,list[ESIDevice]|None]]):
+class ESIDataUpdateCoordinator(
+    DataUpdateCoordinator[dict[str, list[ESIDevice] | None]]
+):
     """Class to manage ESI API data with configurable update interval."""
 
     def __init__(
@@ -67,6 +68,7 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator[dict[str,list[ESIDevice]|No
         raise_on_entry_error: bool = False,
     ) -> None:
         """Refresh data and log errors."""
+
         # Initially, we assume none of the devices will still want a refresh after this update.
         self._device_still_wants_refresh = False
         self._update_retry_count -= 1
@@ -86,10 +88,12 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator[dict[str,list[ESIDevice]|No
         """Set the flag indicating a device still wants a refresh."""
         self._device_still_wants_refresh = True
 
-    def get(self, valid_device_types: set, invalid_device_types: set) -> list[ESIDevice|None]:
+    def get(
+        self, valid_device_types: set, invalid_device_types: set
+    ) -> list[ESIDevice | None]:
         """Get a value from the coordinator data."""
 
-        def allowed(key: str|None, valid_set: set, invalid_set: set) -> bool:
+        def allowed(key: str | None, valid_set: set, invalid_set: set) -> bool:
             if valid_set and key not in valid_set:
                 return False
             if invalid_set and key in invalid_set:
@@ -105,13 +109,23 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator[dict[str,list[ESIDevice]|No
             if (allowed(device.device_type, valid_device_types, invalid_device_types))
         ]
 
+    def get_device(self, device_id: str) -> ESIDevice | None:
+        """Look up device by device_id."""
+
+        devices = self.data.get("devices", [])
+        if devices is None:
+            return None
+        return next(
+            (device for device in devices if device_id == device.device_id), None
+        )
+
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
-        await self._esi.login(email=self._email, password=self._password)
+        await self._esi.async_login(email=self._email, password=self._password)
         if not self._esi.available():
             raise UpdateFailed("Login failed")
 
-    async def _async_update_data(self) -> dict[str,list[ESIDevice]|None]:
+    async def _async_update_data(self) -> dict[str, list[ESIDevice] | None]:
         """Retrieve device list from API."""
         if not self._esi.available():
             await self._async_login()
@@ -129,16 +143,14 @@ class ESIDataUpdateCoordinator(DataUpdateCoordinator[dict[str,list[ESIDevice]|No
         return {"devices": [ESIDevice(raw_data=d, api=self._esi) for d in raw_devs]}
 
     async def async_set_work_mode(
-        self, device_id: str, work_mode: int, temperature: float
+        self, dev: ESIDevice, work_mode: int, temperature: float
     ) -> None:
         """Set the thermostat work mode via API."""
         if not self._esi.available():
             await self._async_login()
 
         try:
-            await self._esi.async_set_work_mode(
-                device_id=device_id, work_mode=work_mode, temperature=temperature
-            )
+            await dev.async_set_work_mode(work_mode=work_mode, temperature=temperature)
         except ESINoAuthorization as exc:
             raise UpdateFailed("No Authorization") from exc
         except ESISetCommandError as exc:
