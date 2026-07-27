@@ -18,12 +18,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    DEFAULT_NAME,
-    DEVICE_TYPES_WATERHEATER,
-    DOMAIN,
-    WATERHEATER_TH_WORK_IDLE,
-)
+from .const import DEFAULT_NAME, DEVICE_TYPES_WATERHEATER, DOMAIN
 from .coordinator import ESIDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,23 +86,22 @@ async def async_setup_entry(
 class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEntity):
     """ESI Water Heater Entity."""
 
-    WORK_MODE_TO_STATE: dict[WaterHeaterWorkMode | None, str] = {
+    WORK_MODE_TO_STATE: dict[WaterHeaterWorkMode, str] = {
         WaterHeaterWorkMode.AUTO: STATE_ON,
-        WaterHeaterWorkMode.AUTO_TEMP_OVERRIDE: STATE_ON,
-        WaterHeaterWorkMode.BOOST: STATE_ON,
+        WaterHeaterWorkMode.OFF: STATE_OFF,
         WaterHeaterWorkMode.MANUAL: STATE_ON,
         WaterHeaterWorkMode.PRESET: STATE_ON,
-        WaterHeaterWorkMode.OFF: STATE_OFF,
-        None: STATE_OFF,
+        WaterHeaterWorkMode.AUTO_TEMP_OVERRIDE: STATE_ON,
+        WaterHeaterWorkMode.BOOST: STATE_ON,
     }
 
-    WORK_MODE_TO_OPERATION: dict[WaterHeaterWorkMode | None, str] = {
-        None: STATE_OFF,
+    WORK_MODE_TO_OPERATION: dict[WaterHeaterWorkMode, str] = {
         WaterHeaterWorkMode.AUTO: OPERATION_AUTO,
+        WaterHeaterWorkMode.OFF: STATE_OFF,
+        WaterHeaterWorkMode.MANUAL: STATE_ON,
+        WaterHeaterWorkMode.PRESET: STATE_ON,
         WaterHeaterWorkMode.AUTO_TEMP_OVERRIDE: OPERATION_AUTO,
         WaterHeaterWorkMode.BOOST: STATE_ON,
-        WaterHeaterWorkMode.MANUAL: STATE_ON,
-        WaterHeaterWorkMode.OFF: STATE_OFF,
     }
 
     OPERATION_TO_WORK_MODE: dict[str, WaterHeaterWorkMode] = {
@@ -262,81 +256,64 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
     def _handle_coordinator_update(self) -> None:
         """Update local state as reported by the coordinator."""
 
-        device = self.coordinator.get_device(self._device_id)
-        if device is None:
-            super()._handle_coordinator_update()
+        state = self.coordinator.get_device_state(
+            self.coordinator.get_device(self._device_id)
+        )
+        if state is None:
+            self.async_write_ha_state()
             return
 
         try:
-            # First check the work mode
-            device_work_mode = device.work_mode
-            if device_work_mode is not None:
-                self._last_confirmed_work_mode = WaterHeaterWorkMode(device_work_mode)
-        except (ValueError, TypeError, KeyError):
+            self._last_confirmed_work_mode = WaterHeaterWorkMode(state.work_mode)
+        except (ValueError, AttributeError, TypeError):
             _LOGGER.error(
-                "Failed to parse work mode for device %s",
-                self._device_id,
+                "Invalid work mode (%d) for device %s",
+                state.work_mode,
+                self._device_id
             )
+            self.async_write_ha_state()
+            return
+
         # Update the current operation, which needs to be one of the values specified in
         # _attr_operation_list, or None.
-        self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(
-            self._last_confirmed_work_mode, None
-        )
+        self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(self._last_confirmed_work_mode)
+
         # Determine the last confirmed state based on the work mode and TH_WORK,
         # which togetherr indicate if the heater is actively heating, idle or off.
-        self._last_confirmed_state = self.WORK_MODE_TO_STATE.get(
-            self._last_confirmed_work_mode, STATE_ON
-        )
+        self._last_confirmed_state = self.WORK_MODE_TO_STATE.get(self._last_confirmed_work_mode)
         if self._last_confirmed_state == STATE_ON:
-            if (
-                device.th_work is not None
-                and device.th_work == WATERHEATER_TH_WORK_IDLE
-            ):
-                # When TH_WORK is 0, it means the heater is at the desired temperature
-                # but the work mode is still ON, so we consider it idle
+            if state.idle:
+                # The idle state indicates the measured temperature is close to the
+                # target temperature that no heating is required, but the confirmed
+                # state is ON, so change that to IDLE.
                 self._last_confirmed_state = STATE_IDLE
 
-        try:
-            # Update current temperature read from the device
-            self._attr_current_temperature = device.measured_temperature
-        except (TypeError, ValueError, KeyError):
-            _LOGGER.error(
-                "Failed to parse current temperature for device %s",
-                self._device_id,
-            )
+        # Update displayed current temperature
+        self._attr_current_temperature = state.measured_temp
 
-        device_target_temp = None
-        try:
-            device_target_temp = device.target_temperature
-            self._attr_target_temperature = device_target_temp
-        except (TypeError, ValueError, KeyError):
-            _LOGGER.error(
-                "Failed to parse target temperature for device %s",
-                self._device_id,
-            )
-        if self._last_confirmed_target_temp is None:
-            # If there wasn't a confirmed target temperature, use the one just read
-            self._last_confirmed_target_temp = device_target_temp
+        if self._last_confirmed_state == STATE_OFF:
+            # When off, don't report a target temperature
+            self._attr_target_temperature = None
+        else:
+            self._attr_target_temperature = state.target_temp
+
+        # When the device's target temperature is reasonable, use it as last confirmed.
         if (
-            (
-                self._pending_work_mode is None
-                or self._pending_work_mode == self._last_confirmed_work_mode
-            )
-            and self._last_confirmed_work_mode is not WaterHeaterWorkMode.OFF
-            and device_target_temp
-            and device_target_temp > self._attr_min_temp
-            and device_target_temp < self._attr_max_temp
+            self._last_confirmed_work_mode is not WaterHeaterWorkMode.OFF
+            and state.target_temp > self._attr_min_temp
+            and state.target_temp <= self._attr_max_temp
         ):
             # Only try to change the confirmed target temperature, when the
             # device is not off, so that we can still turn it on again later,
-            # using the last confirmed target temperature.
-            self._last_confirmed_target_temp = device_target_temp
+            # using the last confirmed target temperature. Avoid setting
+            # the confirmed target temp to min, since that is reported when
+            # the device is in auto mode, but not in an 'on' part of the schedule.
+            self._last_confirmed_target_temp = state.target_temp
 
-        # Clear pending if it matches server state
+        # Clear pending if they match the server state
         if (
-            device_target_temp is not None
-            and self._pending_target_temp is not None
-            and abs(device_target_temp - self._pending_target_temp) < 0.5
+            self._pending_target_temp is not None
+            and abs(state.target_temp - self._pending_target_temp) < 0.5
         ):
             self._pending_target_temp = None
         if self._last_confirmed_work_mode == self._pending_work_mode:
@@ -352,13 +329,14 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
 
         # Update UI
         self.async_write_ha_state()
-        super()._handle_coordinator_update()
 
     @property
     def available(self) -> bool:
-        """Return if the entity is available."""
+        """Indicate whether the entity is available."""
         return (
-            super().available
+            self.coordinator.available()
+            # Need to check that the last update included a report for this device
             and self.coordinator.get_device(self._device_id) is not None
+            # If there isn't a confirmed work mode, the device data isn't as expected.
             and self._last_confirmed_work_mode is not None
         )

@@ -1,5 +1,6 @@
 """Coordinator for managing ESI thermostat API data and updates."""
 
+from dataclasses import dataclass
 from datetime import timedelta
 import logging
 
@@ -17,10 +18,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import MAX_HIGH_FREQUENCY_POLL_COUNT
+from .const import MAX_HIGH_FREQUENCY_POLL_COUNT, TH_WORK_IDLE
 
 _LOGGER = logging.getLogger(__name__)
 
+@dataclass
+class ESIDeviceState:
+    """Key properties of the device in their proper types."""
+
+    work_mode: int
+    idle: bool   
+    measured_temp: float
+    target_temp: float
 
 class ESIDataUpdateCoordinator(
     DataUpdateCoordinator[dict[str, list[ESIDevice] | None]]
@@ -121,6 +130,43 @@ class ESIDataUpdateCoordinator(
             (device for device in devices if device_id == device.device_id), None
         )
 
+    def get_device_state(self, dev: ESIDevice | None) -> ESIDeviceState | None:
+        """Return the key state variabls for dev."""
+
+        if not dev:
+            return None
+        dev_work_mode = dev.work_mode
+        dev_th_work = (dev.th_work == TH_WORK_IDLE)
+        dev_measured_temp = dev.measured_temperature
+        dev_target_temp = dev.target_temperature
+
+        if (
+            dev_work_mode is None
+            or dev_measured_temp is None
+            or dev_target_temp is None
+        ):
+            _LOGGER.error(
+                "Failed to parse state for device %s",
+                dev.device_id,
+            )
+            return None
+
+        try:
+            return ESIDeviceState(
+                int(dev_work_mode),
+                dev_th_work,
+                float(dev_measured_temp),
+                float(dev_target_temp)
+            )
+        except (ValueError, TypeError, AttributeError):
+            _LOGGER.error(
+                "Failed to parse state for device %s, raw_data: %s",
+                dev.device_id,
+                getattr(dev, "raw_data", None),
+            )
+            return None
+
+
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
         try:
@@ -175,4 +221,4 @@ class ESIDataUpdateCoordinator(
 
     def available(self) -> bool:
         """Check if this coordinator is available."""
-        return self._esi.available()
+        return self.last_update_success and self._esi.available()

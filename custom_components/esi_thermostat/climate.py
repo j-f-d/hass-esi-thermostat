@@ -21,7 +21,6 @@ from .const import (
     DEFAULT_NAME,
     DEVICE_TYPES_WATERHEATER,  # For ignored devices (non-climate).
     DOMAIN,
-    WATERHEATER_TH_WORK_IDLE,
 )
 from .coordinator import ESIDataUpdateCoordinator
 
@@ -99,12 +98,18 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
     _attr_max_temp = 35.0
     _attr_target_temperature_step = 0.5
 
-    WORK_MODE_TO_HVAC: dict[ClimateWorkMode | None, HVACMode | None] = {
-        None: None,
-        ClimateWorkMode.MANUAL: HVACMode.HEAT,
+    WORK_MODE_TO_HVAC: dict[ClimateWorkMode, HVACMode] = {
+        # We want a complete map of all ClimateWorkMode possibilities, in case they are set via the ESI App.
         ClimateWorkMode.AUTO: HVACMode.AUTO,
         ClimateWorkMode.AUTO_TEMP_OVERRIDE: HVACMode.AUTO,
+        ClimateWorkMode.ALL_DAY: HVACMode.AUTO,
+        ClimateWorkMode.BOOST: HVACMode.AUTO,
+        ClimateWorkMode.MANUAL: HVACMode.HEAT,
         ClimateWorkMode.OFF: HVACMode.OFF,
+        ClimateWorkMode.HOLIDAY: HVACMode.OFF,
+        ClimateWorkMode.HOLIDAY_BOOST: HVACMode.AUTO,
+        ClimateWorkMode.OFF_BOOST: HVACMode.OFF, # This is a guess
+        ClimateWorkMode.MANUAL_BOOST: HVACMode.HEAT,
     }
 
     HVAC_TO_WORK_MODE: dict[HVACMode, ClimateWorkMode] = {
@@ -225,75 +230,59 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
             await self.coordinator.async_request_refresh()
 
     def _handle_coordinator_update(self) -> None:
-        device = self.coordinator.get_device(self._device_id)
-        if device is None:
-            super()._handle_coordinator_update()
+        """Update local state as reported by the coordinator."""
+
+        state = self.coordinator.get_device_state(
+            self.coordinator.get_device(self._device_id)
+        )
+        if state is None:
+            self.async_write_ha_state()
             return
 
-        # First update the work mode and corresponding hvac_mode and hvac_action
         try:
-            device_work_mode = device.work_mode
-            if device_work_mode is not None:
-                self._last_confirmed_work_mode = ClimateWorkMode(device_work_mode)
+            self._last_confirmed_work_mode = ClimateWorkMode(state.work_mode)
         except (ValueError, TypeError, KeyError):
             _LOGGER.error(
                 "Failed to parse work mode for device %s",
                 self._device_id,
             )
+            self.async_write_ha_state()
+            return
+
         # Try to set the current hvac_mode, which needs to be one of the values specified in
-        # _attr_hvac_modes, or None.
-        self._attr_hvac_mode = self.WORK_MODE_TO_HVAC.get(
-            self._last_confirmed_work_mode, None
-        )
+        # _attr_hvac_modes.
+        self._attr_hvac_mode = self.WORK_MODE_TO_HVAC.get(self._last_confirmed_work_mode)
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_action = HVACAction.OFF
         else:
-            if device.th_work == WATERHEATER_TH_WORK_IDLE:
+            if state.idle:
                 self._attr_hvac_action = HVACAction.IDLE
             self._attr_hvac_action = HVACAction.HEATING
 
-        # Update current temperature
-        try:
-            self._attr_current_temperature = device.measured_temperature
-        except (TypeError, ValueError, KeyError):
-            _LOGGER.error(
-                "Failed to parse current temperature for device %s",
-                self._device_id,
-            )
+        # Update displayed current temperature
+        self._attr_current_temperature = state.measured_temp
 
-        # Until there is a confirmed target temperature, try to use the device's reported target temperature
-        device_target_temp = None
-        try:
-            device_target_temp = device.target_temperature
-            self._attr_target_temperature = device_target_temp
-        except (TypeError, ValueError, KeyError):
-            _LOGGER.error(
-                "Failed to parse target temperature for device %s",
-                self._device_id,
-            )
-        if self._last_confirmed_target_temp is None:
-            self._last_confirmed_target_temp = device_target_temp
-        if (
-            (
-                self._pending_work_mode is None
-                or self._pending_work_mode == self._last_confirmed_work_mode
-            )
-            and self._last_confirmed_work_mode is not ClimateWorkMode.OFF
-            and device_target_temp
-            and device_target_temp > self._attr_min_temp
-            and device_target_temp < self._attr_max_temp
+        # When off, don't report a target temperature
+        if self._attr_hvac_action == HVACMode.OFF:
+            self._attr_target_temperature = None
+        else:
+            self._attr_target_temperature = state.target_temp
+
+        # When the device's target temperature is reasonable, use it as last confirmed.
+        if (self._last_confirmed_work_mode is not ClimateWorkMode.OFF
+            and state.target_temp > self._attr_min_temp
+            and state.target_temp <= self._attr_max_temp
         ):
             # Only try to change the confirmed target temperature, when the
             # device is not off, so that we can still turn it on again later,
-            # using the last confirmed target temperature.
-            self._last_confirmed_target_temp = device_target_temp
+            # using the last confirmed target temperature. Avoid setting
+            # the confirmed target temp to min, since that is reported when
+            # the device is in auto mode, but not in an 'on' part of the schedule.
+            self._last_confirmed_target_temp = state.target_temp
 
-        # Update confirmed state from server
-        # Clear pending if it matches server state
-        if (
-            device_target_temp is not None
-            and self._pending_target_temp is not None
-            and abs(device_target_temp - self._pending_target_temp) < 0.5
+        # Clear pending if they matche server state
+        if (self._pending_target_temp is not None
+            and abs(state.target_temp - self._pending_target_temp) < 0.5
         ):
             self._pending_target_temp = None
         if self._last_confirmed_work_mode == self._pending_work_mode:
@@ -309,13 +298,14 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
 
         # Update UI
         self.async_write_ha_state()
-        super()._handle_coordinator_update()
 
     @property
     def available(self) -> bool:
-        """Return if the entity is available."""
+        """Indicate whether the entity is available."""
         return (
-            super().available
+            self.coordinator.available()
+            # Need to check that the last update included a report for this device
             and self.coordinator.get_device(self._device_id) is not None
+            # If there isn't a confirmed work mode, the device data isn't as expected.
             and self._last_confirmed_work_mode is not None
         )
