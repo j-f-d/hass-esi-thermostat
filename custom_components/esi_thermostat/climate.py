@@ -137,8 +137,8 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
         self._last_confirmed_work_mode: ClimateWorkMode | None = None
 
         # Pending state that hasn't been confirmed by server
-        self._pending_target_temp = None
-        self._pending_work_mode = None
+        self._pending_target_temp: float | None = None
+        self._pending_work_mode: ClimateWorkMode | None = None
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
@@ -205,13 +205,13 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
                 target_temp = dt
         if target_temp is None:
             # Try the current room temperature to prevent us getting colder.
-            target_temp = self.current_temperature
+            target_temp = self.current_temperature()
         if (
             target_temp is None
             or target_temp < self._attr_min_temp
             or target_temp > self._attr_max_temp
         ):
-            # Last resort, use the default, so that we aren't breading lysteria
+            # Last resort, use the default, so that we aren't don't freeze pipes
             target_temp = DEFAULT_MANUAL_TEMPERATURE
 
         try:
