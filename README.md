@@ -1,8 +1,10 @@
 # ESI WiFi Thermostat Home Assistant Integration
 
-This is a custom integration for Home Assistant that adds support for control of ESI WiFi Thermostats. It enables temperature management and thermostat configuration directly within Home Assistant. This version attempts to follow best practices more closely for the development of HACS integrations.
+This is a custom integration for Home Assistant that adds support for control of ESI WiFi Thermostats. It enables temperature management and thermostat configuration directly within Home Assistant. This version attempts to follow [the rules] more closely for the development of HASS integrations.
 
 To that end I have developed a PyPI module called [esi-controls-async] in line with the Home Assistant docs for [Building a Python library for an API] which is used by this integration.
+
+Before using the configuration, you should set up your thermostats and give them names using the [ESI Centro App]. This creates an association in the ESI cloud servers between the device id and the name by which you identify the device, which is used by the integration. The device name can be changed in the [ESI Centro App] from the "Device setting" page and will be reflected in HASS after an integration reload.
 
 ## Known Supported Devices
 
@@ -72,14 +74,16 @@ Using a symbolic link, as above, enables me to easily pull updates into a docker
 
 Restart Home Assistant to load the integration.
 
-### Configuration
+### Adding and Configuring the ESI Thermostat Integration
 
-After downloading 
+After downloading, like other integrations, this integration must be configured in HASS.
 
 1. In Home Assistant, navigate to **Settings** > **Devices and services** > **Add Integration**
-2. Search for **ESI Thermostat**
-3. Enter your ESI account email and password, as used for the ESI Centro App
+2. Search for **ESI Thermostat (JFD)**
+3. Enter your ESI account email and password[^1], as used for the [ESI Centro App]
 4. Optionally, change the refresh interval to control how frequently the thermostat data is updated
+
+[^1]: The credentials are held within your HASS instance as part of the integration configuration and are only used via an **https** connection to the ESI servers to obtain an authorisation key when necessary.
 
 ## Usage
 
@@ -91,9 +95,9 @@ Once configured, a climate entity will be created for each connected room thermo
 
 If the thermostat goes offline, it will appear as 'Unavailable' to Home Asssistant.
 
-The thermostat documentation refers to three main modes of operation, 'Off', 'Manual' and 'Auto' in addition to 'Boost', 'Holiday' and 'Sterilise' modes. This integration uses 'Manual' for the HASS 'on' mode.
+The thermostat documentation refers to three main modes of operation, 'Off', 'Manual' (or 'MAN') and 'Auto' in addition to 'Boost', 'Holiday' and 'Sterilise' modes. This integration uses 'Manual' for the HASS 'on' mode and 'Off' for the HASS 'off' mode.
 
-If 'Boost' is attempted from either 'Auto' or 'Manual' mode either at the device or via the ESI Centro app, these are treated as 'on' mode by the integration, which will show the boosted temperature as the target.
+If 'Boost' is attempted from either 'Auto' or 'Manual' mode either at the device or via the [ESI Centro app], these are treated as 'on' mode by the integration, which will show the boosted temperature as the target.
 
 When in 'off' mode, this water heater integration doesn't report a target temperature, resulting in a gap when you look at the history graphs. (This is a change in behaviour from earlier versions, which would report a target temperature, even though it might not really be the active target.)
 
@@ -103,7 +107,7 @@ Setting a target temperature causes a transition to the 'on' mode if the thermos
 
 Although it is possible to transition to auto mode, there is no way to examine or change the schedules using this integration.
 
-**_Modes such as Holiday, Auto Boost and Sterilise are not well tested, because HASS does that sort of work for me. If enabled using the ESI Centro app, they should result in the thermostat state appearing Off or Manual, or Auto or as appropriate. HASS can set Auto mode, but has no concept of what the thermostat's schedule would be._**
+**_Modes such as Holiday, Boost and Sterilise are not well tested, because HASS does that sort of work for me. If set using the termostat directly or the [ESI Centro App], they should result in the thermostat state appearing Off or Manual, or Auto or as appropriate. HASS has no concept of what the thermostat's schedule would be when set manually or via the app._**
 
 For scheduling, I recommend Niels Faber's [Scheduler Component] and [Lovelace Scheduler Card]
 
@@ -113,13 +117,14 @@ For scheduling, I recommend Niels Faber's [Scheduler Component] and [Lovelace Sc
 - It is derived from work to support **ESI 6 Series** thermostats, so it is hoped, but untested that they still work.
 - Other detected devices will appear as climate entities by default. Until explicitly supported, the cylinder thermostat didn't 'just work' so that is likely the case for other devices too.
 - If the integration does not function as expected, check the Home Assistant logs for errors.
-- If that shows authentication errors, verify that your email and password are entered correctly and match those used for the ESI Centro app and work at the [ESI Portal Heating History dashboard]. If you can't log in to that dashboard, then this integration won't work.
+- If that shows authentication errors, verify that your email and password are entered correctly and match those used for the [ESI Centro app] and work at the [ESI Portal Heating History dashboard]. If you can't log in to that dashboard, then this integration won't work.
 
 ## Contributing
 
 Contributions are welcome. Feel free to fork the repository and submit issues or pull requests.
 
 [DeclanSC's repo]: <https://github.com/DeclanSC/hass-esi-thermostat>
+[the rules]: <https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>
 [HACS]: <https://www.hacs.xyz/docs/use/configuration/basic/#setting-up-the-hacs-integration>
 [Scheduler Component]: <https://github.com/nielsfaber/scheduler-component>
 [Lovelace Scheduler Card]: <https://github.com/nielsfaber/scheduler-card>
@@ -128,5 +133,6 @@ Contributions are welcome. Feel free to fork the repository and submit issues or
 [ESRTP6B]: <https://support.esicontrols.co.uk/product/stratus-esrtp6b>
 [ESRTP6CW]: <https://support.esicontrols.co.uk/product/esrtp6c/>
 [esi-controls-async]: <https://pypi.org/project/esi-controls-async/>
+[ESI Centro App]: <https://wwwesicontrols.azurewebsites.net/centro.html>
 [ESI Portal Heating History dashboard]: <https://esiheating.uksouth.cloudapp.azure.com/portal/UserHeatingHistory>
 [Building a Python library for an API]: <https://developers.home-assistant.io/docs/api_lib_index>
