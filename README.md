@@ -10,7 +10,7 @@ To that end I have developed a PyPI module called [esi-controls-async] in line w
 
 ## Untested included Devices
 
-- **[ESRTP6B]** Series 6 WiFi Programmable Room Thermostat (derived from Declan's repo.)
+- **[ESRTP6B]** Series 6 WiFi Programmable Room Thermostat (derived from [DeclanSC's repo].)
 
 ## Additional or Broken Devices
 
@@ -18,11 +18,11 @@ I have attempted to include support for the **[ESRTP6B]** device, but due to the
 
 ## Features
 
-Compared to DeclanSC's version, I have:
+Compared to [DeclanSC's repo], I have:
 
 - Added support for Cylinder Thermostats (as a Water Heater)
 - Replaced any use of synchronous IO with Asynchronous
-- Addressed all pyline and coding standards issues.
+- Addressed all Pylint/Pylance and coding standards issues.
 - Reviewed and rewritten the API to conform to the documented recommendations.
 
 The common features are:
@@ -33,9 +33,9 @@ The common features are:
 - Configure update intervals for thermostat data
 - Simple installation and configuration
 
-## HACS Installation
+## Installation
 
-### HACS Installation
+### Downloading the integration using [HACS]
 
 <!-- Just click here to directly go to the repository in HACS and click "Download":
 
@@ -43,15 +43,16 @@ The common features are:
 
 Or: -->
 
-- Open HACS
-- Click the three dots in the top right
-- Select Custom Repositories
-- Paste <https://github.com/j-f-d/hass-esi-thermostat> as the repository name
-- Select Integration for the type
+1. Open [HACS]
+2. Click/Touch the three dots in the top right
+3. Select "Custom Repositories"
+4. Paste <https://github.com/j-f-d/hass-esi-thermostat> as the repository name
+5. Select "Integration" for the type, ESI Thermostat (JFD) should now be in the "Available for download" list
+6. Select the "ESI Thermostat (JFD)" integration and press the "Download" icon.
 
-### Manual Installation
+### Manual integration download
 
-### 1. Download the repository
+#### 1. Clone the repository to a local directory
 
 Clone the repository or download it as a ZIP file:
 
@@ -59,15 +60,21 @@ Clone the repository or download it as a ZIP file:
 git clone https://github.com/j-f-d/hass-esi-thermostat.git
 ```
 
-### 2. Install the integration
+#### 2. Make it available to HASS
 
-Copy the esi_thermostat folder to your Home Assistant custom_components directory:
+Copy or link the esi_thermostat folder to your Home Assistant custom_components directory:
 
-> config/custom_components/esi_thermostat/
+```bash
+$ ln -s hass-esi-thermostat/custom_components/esi_thermostat /workspaces/hass-core/config/config/custom_components/esi_thermostat
+```
+
+Using a symbolic link, as above, enables me to easily pull updates into a docker hass-core container for testing branches in advance of release.
 
 Restart Home Assistant to load the integration.
 
-## Configuration
+### Configuration
+
+After downloading 
 
 1. In Home Assistant, navigate to **Settings** > **Devices and services** > **Add Integration**
 2. Search for **ESI Thermostat**
@@ -96,7 +103,9 @@ Setting a target temperature causes a transition to the 'on' mode if the thermos
 
 Although it is possible to transition to auto mode, there is no way to examine or change the schedules using this integration.
 
-**_Holiday and Sterilise Modes are currently untested._**
+**_Modes such as Holiday, Auto Boost and Sterilise are not well tested, because HASS does that sort of work for me. If enabled using the ESI Centro app, they should result in the thermostat state appearing Off or Manual, or Auto or as appropriate. HASS can set Auto mode, but has no concept of what the thermostat's schedule would be._**
+
+For scheduling, I recommend Niels Faber's [Scheduler Component] and [Lovelace Scheduler Card]
 
 ## Notes and Troubleshooting
 
@@ -104,16 +113,20 @@ Although it is possible to transition to auto mode, there is no way to examine o
 - It is derived from work to support **ESI 6 Series** thermostats, so it is hoped, but untested that they still work.
 - Other detected devices will appear as climate entities by default. Until explicitly supported, the cylinder thermostat didn't 'just work' so that is likely the case for other devices too.
 - If the integration does not function as expected, check the Home Assistant logs for errors.
-- Verify that your ESI credentials are correct.
-- If you encounter authentication errors, ensure that your email and password are entered correctly and match those used for the ESI Centro app.
+- If that shows authentication errors, verify that your email and password are entered correctly and match those used for the ESI Centro app and work at the [ESI Portal Heating History dashboard]. If you can't log in to that dashboard, then this integration won't work.
 
 ## Contributing
 
 Contributions are welcome. Feel free to fork the repository and submit issues or pull requests.
 
+[DeclanSC's repo]: <https://github.com/DeclanSC/hass-esi-thermostat>
+[HACS]: <https://www.hacs.xyz/docs/use/configuration/basic/#setting-up-the-hacs-integration>
+[Scheduler Component]: <https://github.com/nielsfaber/scheduler-component>
+[Lovelace Scheduler Card]: <https://github.com/nielsfaber/scheduler-card>
 [ESCTP5-W]: <https://support.esicontrols.co.uk/product/esctp5-w>
 [ESRTP5WF]: <https://support.esicontrols.co.uk/product/esrtp5wifi>
 [ESRTP6B]: <https://support.esicontrols.co.uk/product/stratus-esrtp6b>
 [ESRTP6CW]: <https://support.esicontrols.co.uk/product/esrtp6c/>
 [esi-controls-async]: <https://pypi.org/project/esi-controls-async/>
+[ESI Portal Heating History dashboard]: <https://esiheating.uksouth.cloudapp.azure.com/portal/UserHeatingHistory>
 [Building a Python library for an API]: <https://developers.home-assistant.io/docs/api_lib_index>
