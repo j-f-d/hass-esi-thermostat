@@ -12,13 +12,14 @@ from esi_controls_async import (
     ESINoAuthorization,
     ESIServerError,
     ESISetCommandError,
+    ESITHWork
 )
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import MAX_HIGH_FREQUENCY_POLL_COUNT, TH_WORK_IDLE
+from .const import MAX_HIGH_FREQUENCY_POLL_COUNT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class ESIDataUpdateCoordinator(
         if not dev:
             return None
         dev_work_mode = dev.work_mode
-        dev_th_work = (dev.th_work == TH_WORK_IDLE)
+        dev_th_work = (dev.th_work == ESITHWork(ESITHWork.Idle).name)
         dev_measured_temp = dev.measured_temperature
         dev_target_temp = dev.target_temperature
 

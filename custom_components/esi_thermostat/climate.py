@@ -1,6 +1,6 @@
 """ESI Thermostat Climate Platform."""
 
-from enum import IntEnum
+from esi_controls_async import ESIRoomThermostatWorkMode as ClimateWorkMode
 import logging
 from typing import Final
 
@@ -28,24 +28,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # We should probably allow this to be set in the API.
 DEFAULT_MANUAL_TEMPERATURE: Final = 20.0
-
-
-class ClimateWorkMode(IntEnum):
-    """Enumeration of climate work modes for the ESI thermostat.
-
-    Values correspond to the device's reported work mode codes.
-    """
-
-    AUTO = 0
-    AUTO_TEMP_OVERRIDE = 1
-    ALL_DAY = 2
-    BOOST = 3
-    OFF = 4
-    MANUAL = 5
-    HOLIDAY = 6
-    OFF_BOOST = 7
-    HOLIDAY_BOOST = 8
-    MANUAL_BOOST = 9
 
 
 async def async_setup_entry(

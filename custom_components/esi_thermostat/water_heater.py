@@ -1,7 +1,7 @@
 """ESI Thermostat Water Heater Platform."""
 
 from datetime import timedelta
-from enum import IntEnum
+from esi_controls_async import ESIHWThermostatWorkMode as WaterHeaterWorkMode
 import logging
 from typing import Any, Final
 
@@ -30,21 +30,6 @@ OPERATION_BOOST: Final = "boost"
 
 # We should probably allow this to be set in the API.
 DEFAULT_MANUAL_TEMPERATURE: Final = 55.0
-
-
-class WaterHeaterWorkMode(IntEnum):
-    """Work mode for Water Heater devices."""
-
-    # The temperature is set based on a schedule, learned behavior, AI or some
-    # other related mechanism. User is not able to adjust the temperature
-    AUTO = 0
-    # All activity disabled / Device is off/standby
-    OFF = 1
-    # Heating
-    MANUAL = 2
-    PRESET = 3
-    AUTO_TEMP_OVERRIDE = 4
-    BOOST = 5
 
 
 async def async_setup_entry(

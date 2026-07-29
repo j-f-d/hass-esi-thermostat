@@ -24,7 +24,3 @@ MAX_HIGH_FREQUENCY_POLL_COUNT: Final = 10
 # Device Types
 DEVICE_TYPES_CLIMATE: Final = ["80"]  # Unverified
 DEVICE_TYPES_WATERHEATER: Final = ["81"]
-
-# TH_WORK
-TH_WORK_IDLE: Final = "0"
-TH_WORK_HEATING: Final = "1"
