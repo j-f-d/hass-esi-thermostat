@@ -25,7 +25,7 @@ Compared to [DeclanSC's repo], I have:
 - Added support for Cylinder Thermostats (as a Water Heater)
 - Replaced any use of synchronous IO with Asynchronous
 - Addressed all Pylint/Pylance and coding standards issues.
-- Reviewed and rewritten the API to conform to the documented recommendations.
+- Reviewed and rewritten the API to conform to more of [the rules].
 
 The common features are:
 
@@ -46,11 +46,11 @@ The common features are:
 Or: -->
 
 1. Open [HACS]
-2. Click/Touch the three dots in the top right
-3. Select "Custom Repositories"
-4. Paste <https://github.com/j-f-d/hass-esi-thermostat> as the repository name
-5. Select "Integration" for the type, ESI Thermostat (JFD) should now be in the "Available for download" list
-6. Select the "ESI Thermostat (JFD)" integration and press the "Download" icon.
+2. Click/Touch the three dots in the top right, select: "Custom Repositories"
+    1. Paste <https://github.com/j-f-d/hass-esi-thermostat> as the repository name
+    2. Select "Integration" for the type
+    3. Close the pop-up, "ESI Thermostat (JFD)" should now be in the "Available for download" list
+5. Select the "ESI Thermostat (JFD)" integration and press the "Download" icon.
 
 ### Manual integration download
 
@@ -70,13 +70,13 @@ Copy or link the esi_thermostat folder to your Home Assistant custom_components 
 $ ln -s hass-esi-thermostat/custom_components/esi_thermostat /workspaces/hass-core/config/config/custom_components/esi_thermostat
 ```
 
-Using a symbolic link, as above, enables me to easily pull updates into a docker hass-core container for testing branches in advance of release.
+Using a symbolic link, as above, facilitates easily pulling updates into a docker container running hass-core, e.g. for testing branches in advance of release or for submitting a pull request.
 
 Restart Home Assistant to load the integration.
 
 ### Adding and Configuring the ESI Thermostat Integration
 
-After downloading, like other integrations, this integration must be configured in HASS.
+After downloading, as for other integrations, this integration must be added and configured.
 
 1. In Home Assistant, navigate to **Settings** > **Devices and services** > **Add Integration**
 2. Search for **ESI Thermostat (JFD)**
