@@ -173,7 +173,7 @@ class ESIDataUpdateCoordinator(
         try:
             await self._esi.async_login(email=self._email, password=self._password)
         except ESIServerError as exc:
-            raise UpdateFailed("Post failed") from exc
+            raise UpdateFailed("Server not responding to login", retry_after=300) from exc
         except ESILoginError as exc:
             raise UpdateFailed("Login failed") from exc
         if not self._esi.available():
@@ -185,12 +185,12 @@ class ESIDataUpdateCoordinator(
             try:
                 await self._async_login()
             except UpdateFailed as exc:
-                raise UpdateFailed("Login error") from exc
+                raise UpdateFailed("Login error", retry_after=300) from exc
 
         try:
             await self._esi.async_update_devices()
         except ESIServerError as exc:
-            raise UpdateFailed("Post failed") from exc
+            raise UpdateFailed("Server didn't respond to update request") from exc
         except ESINoAuthorization as exc:
             raise UpdateFailed("No Authorization") from exc
         except ESIDeviceListError as exc:
@@ -209,12 +209,12 @@ class ESIDataUpdateCoordinator(
             try:
                 await self._async_login()
             except UpdateFailed as exc:
-                raise UpdateFailed("Login error") from exc
+                raise UpdateFailed("Login error", retry_after=300) from exc
 
         try:
             await dev.async_set_work_mode(work_mode=work_mode, temperature=temperature)
         except ESIServerError as exc:
-            raise UpdateFailed("Post failed") from exc
+            raise UpdateFailed("Server didn't respond to set work mode") from exc
         except ESINoAuthorization as exc:
             raise UpdateFailed("No Authorization") from exc
         except ESISetCommandError as exc:
