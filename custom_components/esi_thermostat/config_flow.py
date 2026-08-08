@@ -1,12 +1,18 @@
 """Config flow for ESI Thermostat integration."""
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
-from esi_controls_async import ESICentroAPI, ESILoginError, ESIServerError
+from esi_controls_async import ESICentroAPI, ESIProtocolError
 import voluptuous as vol
 
-from homeassistant import config_entries
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -27,7 +33,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ESIThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ESI Thermostat."""
 
     VERSION = 1
@@ -35,33 +41,48 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors = await self._test_credentials(
-                user_input[CONF_EMAIL].lower(), user_input[CONF_PASSWORD]
+            # Previously nothing stopped the same ESI account being added
+            # twice, which would create two coordinators hammering the same
+            # cloud account. Abort early if it's already configured.
+            self._async_abort_entries_match(
+                {CONF_EMAIL: user_input[CONF_EMAIL].lower()}
             )
-            if not errors:
-                # Set the unique ID as the email address
-                await self.async_set_unique_id(user_input[CONF_EMAIL].lower)
-                # This will prevent re-adding the same account
-                self._abort_if_unique_id_configured()
 
-                return self.async_create_entry(
-                    title=DEFAULT_NAME,
-                    data={
-                        CONF_EMAIL: user_input[CONF_EMAIL].lower,
-                        CONF_PASSWORD: user_input[CONF_PASSWORD],
-                    },
-                    options={
-                        CONF_SCAN_INTERVAL: user_input.get(
-                            CONF_SCAN_INTERVAL,
-                            DEFAULT_SCAN_INTERVAL_MINUTES,
-                        )
-                    },
+            try:
+                valid = await self._test_credentials(
+                    user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
                 )
+            except ESIProtocolError:  # pylint: disable=broad-except
+                errors["base"] = "incorrect_email_or_password"
+            except OSError:
+                errors["base"] = "cannot_connect"
+            else:
+                if valid:
+                    # Set the unique ID based on the email address, lower case because email addresses
+                    # are case insensitive and the config_flow documentation requires it.
+                    await self.async_set_unique_id(user_input[CONF_EMAIL].lower())
+                    # This will prevent re-adding the same account
+                    self._abort_if_unique_id_configured()
+
+                    return self.async_create_entry(
+                        title=DEFAULT_NAME,
+                        data={
+                            CONF_EMAIL: user_input[CONF_EMAIL],
+                            CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        },
+                        options={
+                            CONF_SCAN_INTERVAL: user_input.get(
+                                CONF_SCAN_INTERVAL,
+                                DEFAULT_SCAN_INTERVAL_MINUTES,
+                            )
+                        },
+                    )
+                errors["base"] = "incorrect_email_or_password"
 
         return self.async_show_form(
             step_id="user",
@@ -86,32 +107,75 @@ class ESIThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def _test_credentials(self, email: str, password: str) -> dict[str, str]:
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle reauthentication triggered by the integration."""
+        self._reauth_email = entry_data[CONF_EMAIL]
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Dialog that prompts the user to enter their new password."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                valid = await self._test_credentials(
+                    self._reauth_email, user_input[CONF_PASSWORD]
+                )
+            except ESIProtocolError:
+                errors["base"] = "incorrect_password"
+            except OSError:
+                errors["base"] = "cannot_connect"
+            else:
+                if valid:
+                    reauth_entry = self._get_reauth_entry()
+                    new_data = dict(reauth_entry.data)
+                    new_data[CONF_PASSWORD] = user_input[CONF_PASSWORD]
+                    return self.async_update_reload_and_abort(
+                        reauth_entry, data=new_data
+                    )
+                errors["base"] = "incorrect_password"
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_PASSWORD): TextSelector(
+                        TextSelectorConfig(
+                            type=TextSelectorType.PASSWORD,
+                            autocomplete="current-password",
+                        )
+                    )
+                }
+            ),
+            errors=errors,
+            description_placeholders={"email": self._reauth_email or ""},
+        )
+
+    async def _test_credentials(self, email: str, password: str) -> bool:
         """Test if the provided credentials are valid."""
-        esi = ESICentroAPI(session=async_get_clientsession(self.hass))
-        try:
-            await esi.async_login(email=email, password=password)
-        except ESIServerError:
-            return {"base": "cannot_connect"}
-        except ESILoginError:
-            return {"base": "incorrect_email_or_password"}
-        return {} if esi.available() else {"base": "unknown"}
+        api = ESICentroAPI(session=async_get_clientsession(self.hass))
+        await api.async_login(email=email, password=password)
+        return api.available()
 
     @staticmethod
     @callback
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
+        config_entry: ConfigEntry,
+    ) -> OptionsFlow:
         """Get the options flow for handler."""
         return ESIThermostatOptionsFlow()
 
 
-class ESIThermostatOptionsFlow(config_entries.OptionsFlow):
+class ESIThermostatOptionsFlow(OptionsFlow):
     """Handle options flow for ESI Thermostat."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
