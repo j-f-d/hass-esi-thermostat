@@ -1,8 +1,9 @@
 """ESI Thermostat Climate Platform."""
 
-from esi_controls_async import ESIRoomThermostatWorkMode as ClimateWorkMode
 import logging
-from typing import Final
+from typing import ClassVar, Final
+
+from esi_controls_async import ESIRoomThermostatWorkMode as ClimateWorkMode
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -75,29 +76,28 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
     _attr_has_entity_name = False
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF]
     _attr_min_temp = 5.0
     _attr_max_temp = 35.0
     _attr_target_temperature_step = 0.5
 
-    WORK_MODE_TO_HVAC: dict[ClimateWorkMode, HVACMode] = {
+    _WORK_MODE_TO_HVAC: ClassVar[dict[ClimateWorkMode, HVACMode]] = {
         # We want a complete map of all ClimateWorkMode possibilities, in case they are set via the ESI App.
-        ClimateWorkMode.AUTO: HVACMode.AUTO,
-        ClimateWorkMode.AUTO_TEMP_OVERRIDE: HVACMode.AUTO,
-        ClimateWorkMode.ALL_DAY: HVACMode.AUTO,
-        ClimateWorkMode.BOOST: HVACMode.AUTO,
-        ClimateWorkMode.MANUAL: HVACMode.HEAT,
-        ClimateWorkMode.OFF: HVACMode.OFF,
-        ClimateWorkMode.HOLIDAY: HVACMode.OFF,
-        ClimateWorkMode.HOLIDAY_BOOST: HVACMode.AUTO,
-        ClimateWorkMode.OFF_BOOST: HVACMode.OFF, # This is a guess
-        ClimateWorkMode.MANUAL_BOOST: HVACMode.HEAT,
+        ClimateWorkMode.Auto: HVACMode.AUTO,
+        ClimateWorkMode.AutoOverride: HVACMode.AUTO,
+        ClimateWorkMode.AllDay: HVACMode.AUTO,
+        ClimateWorkMode.Boost: HVACMode.AUTO,
+        ClimateWorkMode.Manual: HVACMode.HEAT,
+        ClimateWorkMode.Off: HVACMode.OFF,
+        ClimateWorkMode.Holiday: HVACMode.OFF,
+        ClimateWorkMode.OffBoost: HVACMode.AUTO,
+        ClimateWorkMode.HolidayBoost: HVACMode.OFF,  # This is a guess
+        ClimateWorkMode.ManualBoost: HVACMode.HEAT,
     }
 
-    HVAC_TO_WORK_MODE: dict[HVACMode, ClimateWorkMode] = {
-        HVACMode.HEAT: ClimateWorkMode.MANUAL,
-        HVACMode.AUTO: ClimateWorkMode.AUTO,
-        HVACMode.OFF: ClimateWorkMode.OFF,
+    _HVAC_TO_WORK_MODE: ClassVar[dict[HVACMode, ClimateWorkMode]] = {
+        HVACMode.HEAT: ClimateWorkMode.Manual,
+        HVACMode.AUTO: ClimateWorkMode.Auto,
+        HVACMode.OFF: ClimateWorkMode.Off,
     }
 
     def __init__(
@@ -112,6 +112,7 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
         self._attr_hvac_mode = None
+        self._attr_hvac_modes = [HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF]
 
         # Last known server-confirmed state, all none for now, but
         # will be filled out first update.
@@ -134,7 +135,9 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
         # Set pending state immediately
         if hvac_mode == HVACMode.OFF:
             self._pending_target_temp = self._attr_min_temp
-        self._pending_work_mode = self.HVAC_TO_WORK_MODE.get(hvac_mode, None)
+        self._pending_work_mode = self._HVAC_TO_WORK_MODE.get(
+            hvac_mode, ClimateWorkMode.Auto
+        )
 
         # Request update to server
         await self._async_perform_update()
@@ -144,12 +147,12 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
 
-        if self._last_confirmed_work_mode == ClimateWorkMode.AUTO:
+        if self._last_confirmed_work_mode == ClimateWorkMode.Auto:
             # Setting temperature will require manual mode
-            self._pending_work_mode = ClimateWorkMode.AUTO_TEMP_OVERRIDE
+            self._pending_work_mode = ClimateWorkMode.AutoOverride
         else:
             # Setting temperature will require manual mode
-            self._pending_work_mode = ClimateWorkMode.MANUAL
+            self._pending_work_mode = ClimateWorkMode.Manual
         self._pending_target_temp = temperature
 
         # Request update to server
@@ -187,7 +190,7 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
                 target_temp = dt
         if target_temp is None:
             # Try the current room temperature to prevent us getting colder.
-            target_temp = self.current_temperature()
+            target_temp = self.current_temperature
         if (
             target_temp is None
             or target_temp < self._attr_min_temp
@@ -199,7 +202,7 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
         try:
             # Send request to server
             await self.coordinator.async_set_work_mode(
-                device, self._pending_work_mode, target_temp
+                device, self._pending_work_mode.value, target_temp
             )
         except Exception:
             _LOGGER.exception("Update failed")
@@ -223,7 +226,7 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
 
         try:
             self._last_confirmed_work_mode = ClimateWorkMode(state.work_mode)
-        except (ValueError, TypeError, KeyError):
+        except ValueError, TypeError, KeyError:
             _LOGGER.error(
                 "Failed to parse work mode for device %s",
                 self._device_id,
@@ -233,7 +236,9 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
 
         # Try to set the current hvac_mode, which needs to be one of the values specified in
         # _attr_hvac_modes.
-        self._attr_hvac_mode = self.WORK_MODE_TO_HVAC.get(self._last_confirmed_work_mode)
+        self._attr_hvac_mode = self._WORK_MODE_TO_HVAC.get(
+            self._last_confirmed_work_mode
+        )
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_action = HVACAction.OFF
         else:
@@ -251,7 +256,8 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
             self._attr_target_temperature = state.target_temp
 
         # When the device's target temperature is reasonable, use it as last confirmed.
-        if (self._last_confirmed_work_mode is not ClimateWorkMode.OFF
+        if (
+            self._last_confirmed_work_mode is not ClimateWorkMode.Off
             and state.target_temp > self._attr_min_temp
             and state.target_temp <= self._attr_max_temp
         ):
@@ -263,7 +269,8 @@ class EsiClimate(CoordinatorEntity[ESIDataUpdateCoordinator], ClimateEntity):
             self._last_confirmed_target_temp = state.target_temp
 
         # Clear pending if they matche server state
-        if (self._pending_target_temp is not None
+        if (
+            self._pending_target_temp is not None
             and abs(state.target_temp - self._pending_target_temp) < 0.5
         ):
             self._pending_target_temp = None

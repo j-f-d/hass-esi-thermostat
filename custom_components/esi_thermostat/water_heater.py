@@ -1,9 +1,10 @@
 """ESI Thermostat Water Heater Platform."""
 
 from datetime import timedelta
-from esi_controls_async import ESIHWThermostatWorkMode as WaterHeaterWorkMode
 import logging
-from typing import Any, Final
+from typing import Any, ClassVar, Final
+
+from esi_controls_async import ESIHWThermostatWorkMode as WaterHeaterWorkMode
 
 from homeassistant.components.water_heater import (
     STATE_OFF,
@@ -71,32 +72,6 @@ async def async_setup_entry(
 class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEntity):
     """ESI Water Heater Entity."""
 
-    WORK_MODE_TO_STATE: dict[WaterHeaterWorkMode, str] = {
-        WaterHeaterWorkMode.AUTO: STATE_ON,
-        WaterHeaterWorkMode.OFF: STATE_OFF,
-        WaterHeaterWorkMode.MANUAL: STATE_ON,
-        WaterHeaterWorkMode.PRESET: STATE_ON,
-        WaterHeaterWorkMode.AUTO_TEMP_OVERRIDE: STATE_ON,
-        WaterHeaterWorkMode.BOOST: STATE_ON,
-    }
-
-    WORK_MODE_TO_OPERATION: dict[WaterHeaterWorkMode, str] = {
-        WaterHeaterWorkMode.AUTO: OPERATION_AUTO,
-        WaterHeaterWorkMode.OFF: STATE_OFF,
-        WaterHeaterWorkMode.MANUAL: STATE_ON,
-        WaterHeaterWorkMode.PRESET: STATE_ON,
-        WaterHeaterWorkMode.AUTO_TEMP_OVERRIDE: OPERATION_AUTO,
-        WaterHeaterWorkMode.BOOST: STATE_ON,
-    }
-
-    OPERATION_TO_WORK_MODE: dict[str, WaterHeaterWorkMode] = {
-        OPERATION_AUTO: WaterHeaterWorkMode.AUTO,
-        OPERATION_AUTO_OVERRIDE: WaterHeaterWorkMode.AUTO_TEMP_OVERRIDE,
-        OPERATION_BOOST: WaterHeaterWorkMode.BOOST,
-        STATE_OFF: WaterHeaterWorkMode.OFF,
-        STATE_ON: WaterHeaterWorkMode.MANUAL,
-    }
-
     _attr_has_entity_name = False
     _attr_supported_features = (
         #        WaterHeaterEntityFeature.AWAY_MODE |
@@ -105,15 +80,36 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
         | WaterHeaterEntityFeature.TARGET_TEMPERATURE
     )
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_operation_list = [
-        STATE_OFF,
-        OPERATION_AUTO,
-        STATE_ON,
-    ]
     _attr_min_temp = 25.0
     _attr_max_temp = 65.0
     _attr_target_temperature_step = 0.5
     _attr_precision = 0.5
+
+    _WORK_MODE_TO_STATE: ClassVar[dict[WaterHeaterWorkMode, str]] = {
+        WaterHeaterWorkMode.Auto: STATE_ON,
+        WaterHeaterWorkMode.Off: STATE_OFF,
+        WaterHeaterWorkMode.Manual: STATE_ON,
+        WaterHeaterWorkMode.Preset: STATE_ON,
+        WaterHeaterWorkMode.AutoOverride: STATE_ON,
+        WaterHeaterWorkMode.Boost: STATE_ON,
+    }
+
+    _WORK_MODE_TO_OPERATION: ClassVar[dict[WaterHeaterWorkMode, str]] = {
+        WaterHeaterWorkMode.Auto: OPERATION_AUTO,
+        WaterHeaterWorkMode.Off: STATE_OFF,
+        WaterHeaterWorkMode.Manual: STATE_ON,
+        WaterHeaterWorkMode.Preset: STATE_ON,
+        WaterHeaterWorkMode.AutoOverride: OPERATION_AUTO,
+        WaterHeaterWorkMode.Boost: STATE_ON,
+    }
+
+    _OPERATION_TO_WORK_MODE: ClassVar[dict[str, WaterHeaterWorkMode]] = {
+        OPERATION_AUTO: WaterHeaterWorkMode.Auto,
+        OPERATION_AUTO_OVERRIDE: WaterHeaterWorkMode.AutoOverride,
+        OPERATION_BOOST: WaterHeaterWorkMode.Boost,
+        STATE_OFF: WaterHeaterWorkMode.Off,
+        STATE_ON: WaterHeaterWorkMode.Manual,
+    }
 
     def __init__(
         self,
@@ -128,6 +124,7 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
         self._attr_unique_id = f"{DOMAIN}_{device_id}"
         self._attr_current_operation = None
         self._attr_current_temperature = None
+        self._attr_operation_list = [STATE_OFF, OPERATION_AUTO, STATE_ON]
 
         # Last known server-confirmed state, all none for now, but
         # will be filled out first update.
@@ -151,7 +148,7 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
 
     async def async_set_water_heater_mode(self, work_mode: WaterHeaterWorkMode) -> None:
         """Set the HVAC mode."""
-        if work_mode == WaterHeaterWorkMode.OFF:
+        if work_mode == WaterHeaterWorkMode.Off:
             self._pending_target_temp = self._attr_min_temp
         # Set pending state immediately
         self._pending_work_mode = work_mode
@@ -161,16 +158,16 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the water heater on."""
-        await self.async_set_water_heater_mode(WaterHeaterWorkMode.MANUAL)
+        await self.async_set_water_heater_mode(WaterHeaterWorkMode.Manual)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off."""
-        await self.async_set_water_heater_mode(WaterHeaterWorkMode.OFF)
+        await self.async_set_water_heater_mode(WaterHeaterWorkMode.Off)
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         """Set new target operation mode."""
         await self.async_set_water_heater_mode(
-            self.OPERATION_TO_WORK_MODE.get(operation_mode, WaterHeaterWorkMode.AUTO)
+            self._OPERATION_TO_WORK_MODE.get(operation_mode, WaterHeaterWorkMode.Auto)
         )
 
     async def async_set_temperature(self, **kwargs) -> None:
@@ -179,7 +176,7 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
             return
 
         # Overriding temperature implies manual mode
-        self._pending_work_mode = WaterHeaterWorkMode.MANUAL
+        self._pending_work_mode = WaterHeaterWorkMode.Manual
         self._pending_target_temp = temperature
 
         # Request update to server
@@ -226,7 +223,7 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
         try:
             # Send request to server
             await self.coordinator.async_set_work_mode(
-                device, self._pending_work_mode, target_temp
+                device, self._pending_work_mode.value, target_temp
             )
         except Exception:
             _LOGGER.exception("Update failed")
@@ -250,28 +247,29 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
 
         try:
             self._last_confirmed_work_mode = WaterHeaterWorkMode(state.work_mode)
-        except (ValueError, AttributeError, TypeError):
+        except ValueError, AttributeError, TypeError:
             _LOGGER.error(
-                "Invalid work mode (%d) for device %s",
-                state.work_mode,
-                self._device_id
+                "Invalid work mode (%d) for device %s", state.work_mode, self._device_id
             )
             self.async_write_ha_state()
             return
 
         # Update the current operation, which needs to be one of the values specified in
         # _attr_operation_list, or None.
-        self._attr_current_operation = self.WORK_MODE_TO_OPERATION.get(self._last_confirmed_work_mode)
+        self._attr_current_operation = self._WORK_MODE_TO_OPERATION.get(
+            self._last_confirmed_work_mode
+        )
 
         # Determine the last confirmed state based on the work mode and TH_WORK,
         # which togetherr indicate if the heater is actively heating, idle or off.
-        self._last_confirmed_state = self.WORK_MODE_TO_STATE.get(self._last_confirmed_work_mode)
-        if self._last_confirmed_state == STATE_ON:
-            if state.idle:
-                # The idle state indicates the measured temperature is close to the
-                # target temperature that no heating is required, but the confirmed
-                # state is ON, so change that to IDLE.
-                self._last_confirmed_state = STATE_IDLE
+        self._last_confirmed_state = self._WORK_MODE_TO_STATE.get(
+            self._last_confirmed_work_mode
+        )
+        if self._last_confirmed_state == STATE_ON and state.idle:
+            # The idle state indicates the measured temperature is close to the
+            # target temperature that no heating is required, but the confirmed
+            # state is ON, so change that to IDLE.
+            self._last_confirmed_state = STATE_IDLE
 
         # Update displayed current temperature
         self._attr_current_temperature = state.measured_temp
@@ -284,7 +282,7 @@ class EsiWaterHeater(CoordinatorEntity[ESIDataUpdateCoordinator], WaterHeaterEnt
 
         # When the device's target temperature is reasonable, use it as last confirmed.
         if (
-            self._last_confirmed_work_mode is not WaterHeaterWorkMode.OFF
+            self._last_confirmed_work_mode is not WaterHeaterWorkMode.Off
             and state.target_temp > self._attr_min_temp
             and state.target_temp <= self._attr_max_temp
         ):
