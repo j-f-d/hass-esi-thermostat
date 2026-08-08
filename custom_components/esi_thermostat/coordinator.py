@@ -12,7 +12,7 @@ from esi_controls_async import (
     ESINoAuthorization,
     ESIServerError,
     ESISetCommandError,
-    ESITHWork
+    ESITHWork,
 )
 
 from homeassistant.core import HomeAssistant
@@ -23,14 +23,16 @@ from .const import MAX_HIGH_FREQUENCY_POLL_COUNT
 
 _LOGGER = logging.getLogger(__name__)
 
+
 @dataclass
 class ESIDeviceState:
     """Key properties of the device in their proper types."""
 
     work_mode: int
-    idle: bool   
+    idle: bool
     measured_temp: float
     target_temp: float
+
 
 class ESIDataUpdateCoordinator(
     DataUpdateCoordinator[dict[str, list[ESIDevice] | None]]
@@ -137,7 +139,7 @@ class ESIDataUpdateCoordinator(
         if not dev:
             return None
         dev_work_mode = dev.work_mode
-        dev_th_work = (dev.th_work == ESITHWork(ESITHWork.Idle).name)
+        dev_th_work = dev.th_work == ESITHWork(ESITHWork.Idle).name
         dev_measured_temp = dev.measured_temperature
         dev_target_temp = dev.target_temperature
 
@@ -157,9 +159,9 @@ class ESIDataUpdateCoordinator(
                 int(dev_work_mode),
                 dev_th_work,
                 float(dev_measured_temp),
-                float(dev_target_temp)
+                float(dev_target_temp),
             )
-        except (ValueError, TypeError, AttributeError):
+        except ValueError, TypeError, AttributeError:
             _LOGGER.error(
                 "Failed to parse state for device %s, raw_data: %s",
                 dev.device_id,
@@ -167,13 +169,14 @@ class ESIDataUpdateCoordinator(
             )
             return None
 
-
     async def _async_login(self) -> None:
         """Authenticate with ESI API."""
         try:
             await self._esi.async_login(email=self._email, password=self._password)
         except ESIServerError as exc:
-            raise UpdateFailed("Server not responding to login", retry_after=300) from exc
+            raise UpdateFailed(
+                "Server not responding to login", retry_after=300
+            ) from exc
         except ESILoginError as exc:
             raise UpdateFailed("Login failed") from exc
         if not self._esi.available():
